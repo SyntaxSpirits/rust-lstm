@@ -3,6 +3,11 @@ name = "rust-lstm"
 version = "0.1.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
+description = "A Rust library for LSTM (Long Short-Term Memory) neural networks."
+license = "MIT"
+repository = "https://github.com/SyntaxSpirits/rust-lstm"
+homepage = "https://github.com/SyntaxSpirits/rust-lstm"
+documentation = "https://docs.rs/rust-lstm"
 
 [dependencies]
 ndarray = "0.15"
