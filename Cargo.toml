@@ -1,0 +1,11 @@
+[package]
+name = "rust-lstm"
+version = "0.1.0"
+authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+ndarray = "0.15"
+ndarray-rand = "0.14"
+rand = { version = "0.8", features = ["std"] }
+rand_distr = "0.4"
