@@ -9,7 +9,13 @@ fn test_lstm_network_integration() {
     let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
 
     let input = arr2(&[[0.5], [0.1], [-0.3]]);
-    let output = network.forward(&input);
+
+    // Initialize the hidden state and cell state
+    let hx = arr2(&[[0.0], [0.0]]);
+    let cx = arr2(&[[0.0], [0.0]]);
+
+    // Perform a forward pass
+    let (output, _) = network.forward(&input, &hx, &cx);
 
     assert_eq!(output.shape(), &[hidden_size, 1]);
 }

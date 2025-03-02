@@ -12,8 +12,12 @@ fn main() {
     // Create some example input data
     let input = Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap();
 
+    // Initialize the hidden state and cell state
+    let hx = Array2::zeros((hidden_size, 1));
+    let cx = Array2::zeros((hidden_size, 1));
+
     // Perform a forward pass
-    let output = network.forward(&input);
+    let (output, _) = network.forward(&input, &hx, &cx);
 
     // Print the output
     println!("Output: {:?}", output);
