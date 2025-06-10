@@ -60,6 +60,11 @@ impl Into<LSTMCell> for SerializableLSTMCell {
             b_ih: self.b_ih.into(),
             b_hh: self.b_hh.into(),
             hidden_size: self.hidden_size,
+            input_dropout: None,
+            recurrent_dropout: None,
+            output_dropout: None,
+            zoneout: None,
+            is_training: true,
         }
     }
 }

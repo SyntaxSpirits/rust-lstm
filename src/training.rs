@@ -61,6 +61,9 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             panic!("Inputs and targets must have the same length");
         }
 
+        // Ensure network is in training mode
+        self.network.train();
+
         let (outputs, caches) = self.network.forward_sequence_with_cache(inputs);
         
         let mut total_loss = 0.0;
@@ -105,13 +108,17 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             let start_time = Instant::now();
             let mut epoch_loss = 0.0;
 
+            // Training phase
+            self.network.train();
             for (inputs, targets) in train_data {
                 let loss = self.train_sequence(inputs, targets);
                 epoch_loss += loss;
             }
             epoch_loss /= train_data.len() as f64;
 
+            // Validation phase
             let validation_loss = if let Some(val_data) = validation_data {
+                self.network.eval(); // Set to evaluation mode for validation
                 Some(self.evaluate(val_data))
             } else {
                 None
@@ -143,7 +150,10 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
     }
 
     /// Evaluate model performance on validation data
-    pub fn evaluate(&self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
+    pub fn evaluate(&mut self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
+        // Ensure network is in evaluation mode
+        self.network.eval();
+        
         let mut total_loss = 0.0;
         let mut total_samples = 0;
 
@@ -169,7 +179,10 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
     }
 
     /// Generate predictions for input sequences
-    pub fn predict(&self, inputs: &[Array2<f64>]) -> Vec<Array2<f64>> {
+    pub fn predict(&mut self, inputs: &[Array2<f64>]) -> Vec<Array2<f64>> {
+        // Ensure network is in evaluation mode for prediction
+        self.network.eval();
+        
         let (outputs, _) = self.network.forward_sequence_with_cache(inputs);
         outputs.into_iter().map(|(output, _)| output).collect()
     }
@@ -198,6 +211,15 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
     pub fn get_metrics_history(&self) -> &[TrainingMetrics] {
         &self.metrics_history
+    }
+
+    /// Set network to training mode
+    pub fn set_training_mode(&mut self, training: bool) {
+        if training {
+            self.network.train();
+        } else {
+            self.network.eval();
+        }
     }
 }
 

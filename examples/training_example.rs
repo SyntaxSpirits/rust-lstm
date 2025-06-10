@@ -30,7 +30,7 @@ fn generate_sine_data(num_sequences: usize, sequence_length: usize) -> Vec<(Vec<
 }
 
 /// Evaluate prediction accuracy on sine wave data
-fn evaluate_predictions(network: &LSTMNetwork, test_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
+fn evaluate_predictions(network: &mut LSTMNetwork, test_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
     let mut total_error = 0.0;
     let mut count = 0;
     
@@ -78,7 +78,7 @@ fn main() {
         println!("SGD - Final validation loss: {:.6}", val_loss);
     }
     
-    let prediction_error_sgd = evaluate_predictions(&trainer_sgd.network, &val_data);
+    let prediction_error_sgd = evaluate_predictions(&mut trainer_sgd.network, &val_data);
     println!("SGD - Average prediction error: {:.6}\n", prediction_error_sgd);
     
     // Training with Adam
@@ -94,7 +94,7 @@ fn main() {
         println!("Adam - Final validation loss: {:.6}", val_loss);
     }
     
-    let prediction_error_adam = evaluate_predictions(&trainer_adam.network, &val_data);
+    let prediction_error_adam = evaluate_predictions(&mut trainer_adam.network, &val_data);
     println!("Adam - Average prediction error: {:.6}\n", prediction_error_adam);
     
     // Compare results

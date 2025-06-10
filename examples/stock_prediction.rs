@@ -6,6 +6,7 @@ use rust_lstm::optimizers::Adam;
 
 /// Stock data point with OHLCV (Open, High, Low, Close, Volume)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct StockData {
     timestamp: String,
     open: f64,
@@ -135,19 +136,19 @@ impl StockPredictor {
     }
 
     /// Predict next day's closing price
-    fn predict_next_price(&self, recent_data: &[StockData]) -> Option<f64> {
+    fn predict_next_price(&mut self, recent_data: &[StockData]) -> Option<f64> {
         if recent_data.len() < self.sequence_length {
             return None;
         }
 
-        let trainer = self.trainer.as_ref()?;
-        
-        // Prepare input sequence
+        // Prepare input sequence first (before getting mutable trainer reference)
         let start_idx = recent_data.len() - self.sequence_length;
         let inputs: Vec<Array2<f64>> = recent_data[start_idx..]
             .iter()
             .map(|stock| self.normalize_features(stock))
             .collect();
+
+        let trainer = self.trainer.as_mut()?;
 
         // Make prediction
         let predictions = trainer.predict(&inputs);

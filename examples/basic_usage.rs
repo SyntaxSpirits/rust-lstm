@@ -7,7 +7,7 @@ fn main() {
     let num_layers = 2;
 
     // Create an LSTM network
-    let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
+    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers);
 
     // Create some example input data
     let input = Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap();
