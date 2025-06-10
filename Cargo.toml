@@ -1,13 +1,15 @@
 [package]
 name = "rust-lstm"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
-description = "A Rust library for LSTM (Long Short-Term Memory) neural networks."
+description = "A complete LSTM neural network library with training capabilities, multiple optimizers, and peephole variants."
 license = "MIT"
 repository = "https://github.com/SyntaxSpirits/rust-lstm"
 homepage = "https://github.com/SyntaxSpirits/rust-lstm"
 documentation = "https://docs.rs/rust-lstm"
+keywords = ["lstm", "neural-network", "machine-learning", "deep-learning", "rnn"]
+categories = ["algorithms", "science"]
 
 [dependencies]
 ndarray = "0.15"
