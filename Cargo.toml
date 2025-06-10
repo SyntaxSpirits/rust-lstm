@@ -16,3 +16,27 @@ ndarray = "0.15"
 ndarray-rand = "0.14"
 rand = { version = "0.8", features = ["std"] }
 rand_distr = "0.4"
+
+[[example]]
+name = "training_example"
+path = "examples/training_example.rs"
+
+[[example]]
+name = "stock_prediction"
+path = "examples/stock_prediction.rs"
+
+[[example]]
+name = "weather_prediction"
+path = "examples/weather_prediction.rs"
+
+[[example]]
+name = "text_generation_advanced"
+path = "examples/text_generation_advanced.rs"
+
+[[example]]
+name = "real_data_example"
+path = "examples/real_data_example.rs"
+
+[[example]]
+name = "simple_text_generation"
+path = "examples/simple_text_generation.rs"

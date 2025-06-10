@@ -36,6 +36,7 @@ pub struct LSTMCellCache {
 /// - o_t = σ(W_xo * x_t + W_ho * h_t-1 + b_o)
 /// - c_t = f_t ⊙ c_t-1 + i_t ⊙ g_t
 /// - h_t = o_t ⊙ tanh(c_t)
+#[derive(Clone)]
 pub struct LSTMCell {
     pub w_ih: Array2<f64>,  // input-to-hidden weights (4*hidden_size, input_size)
     pub w_hh: Array2<f64>,  // hidden-to-hidden weights (4*hidden_size, hidden_size)

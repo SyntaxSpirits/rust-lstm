@@ -3,6 +3,7 @@ use crate::layers::lstm_cell::{LSTMCell, LSTMCellGradients, LSTMCellCache};
 use crate::optimizers::Optimizer;
 
 /// Holds cached values for all layers during network forward pass
+#[derive(Clone)]
 pub struct LSTMNetworkCache {
     pub cell_caches: Vec<LSTMCellCache>,
 }
@@ -11,6 +12,7 @@ pub struct LSTMNetworkCache {
 /// 
 /// Stacks multiple LSTM cells where the output of layer i becomes 
 /// the input to layer i+1. Supports both inference and training.
+#[derive(Clone)]
 pub struct LSTMNetwork {
     cells: Vec<LSTMCell>,
     pub input_size: usize,
