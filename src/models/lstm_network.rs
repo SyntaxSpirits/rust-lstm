@@ -44,7 +44,6 @@ impl LSTMNetwork {
         }
     }
 
-    /// Add input dropout to all layers
     pub fn with_input_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
         for cell in &mut self.cells {
             *cell = cell.clone().with_input_dropout(dropout_rate, variational);
@@ -52,7 +51,6 @@ impl LSTMNetwork {
         self
     }
 
-    /// Add recurrent dropout to all layers
     pub fn with_recurrent_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
         for cell in &mut self.cells {
             *cell = cell.clone().with_recurrent_dropout(dropout_rate, variational);
@@ -60,11 +58,8 @@ impl LSTMNetwork {
         self
     }
 
-    /// Add output dropout to all layers except the last one
     pub fn with_output_dropout(mut self, dropout_rate: f64) -> Self {
         for (i, cell) in self.cells.iter_mut().enumerate() {
-            // Only apply output dropout to non-final layers to avoid 
-            // affecting the final network output directly
             if i < self.num_layers - 1 {
                 *cell = cell.clone().with_output_dropout(dropout_rate);
             }
@@ -72,7 +67,6 @@ impl LSTMNetwork {
         self
     }
 
-    /// Add zoneout to all layers
     pub fn with_zoneout(mut self, cell_zoneout_rate: f64, hidden_zoneout_rate: f64) -> Self {
         for cell in &mut self.cells {
             *cell = cell.clone().with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
@@ -80,7 +74,6 @@ impl LSTMNetwork {
         self
     }
 
-    /// Add layer-specific dropout configuration
     pub fn with_layer_dropout(mut self, layer_configs: Vec<LayerDropoutConfig>) -> Self {
         for (i, config) in layer_configs.into_iter().enumerate() {
             if i < self.cells.len() {
@@ -105,7 +98,6 @@ impl LSTMNetwork {
         self
     }
 
-    /// Set training mode for all dropout layers
     pub fn train(&mut self) {
         self.is_training = true;
         for cell in &mut self.cells {
@@ -113,7 +105,6 @@ impl LSTMNetwork {
         }
     }
 
-    /// Set evaluation mode for all dropout layers
     pub fn eval(&mut self) {
         self.is_training = false;
         for cell in &mut self.cells {
@@ -155,12 +146,10 @@ impl LSTMNetwork {
         let mut current_cx = cx.clone();
         let mut cell_caches = Vec::new();
 
-        // Forward through each layer sequentially
         for cell in &mut self.cells {
             let (new_hx, new_cx, cache) = cell.forward_with_cache(&current_input, &current_hx, &current_cx);
             cell_caches.push(cache);
 
-            // Layer i+1 input is layer i hidden output
             current_input = new_hx.clone();
             current_hx = new_hx;
             current_cx = new_cx;
@@ -179,23 +168,20 @@ impl LSTMNetwork {
         let mut current_dhy = dhy.clone();
         let mut current_dcy = dcy.clone();
 
-        // Backward through layers in reverse order
         for (i, cell) in self.cells.iter().enumerate().rev() {
             let cell_cache = &cache.cell_caches[i];
             let (cell_gradients, dx, _dhx_prev, dcx_prev) = cell.backward(&current_dhy, &current_dcy, cell_cache);
             
             gradients.push(cell_gradients);
 
-            // Propagate gradients to previous layer
             if i > 0 {
                 current_dhy = dx;
                 current_dcy = dcx_prev;
             }
         }
 
-        gradients.reverse(); // Match forward order
+        gradients.reverse();
         
-        // Compute input gradients for the first layer
         let dx_input = if !gradients.is_empty() {
             let first_cell = &self.cells[0];
             let first_cache = &cache.cell_caches[0];

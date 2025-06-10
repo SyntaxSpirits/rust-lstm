@@ -6,6 +6,7 @@ A comprehensive LSTM (Long Short-Term Memory) neural network library implemented
 
 - **LSTM cell implementation** with forward and backward propagation
 - **Peephole LSTM variant** for enhanced performance
+- **Bidirectional LSTM networks** with flexible output combination modes
 - **Multi-layer LSTM networks** with configurable architecture
 - **Complete training system** with backpropagation through time (BPTT)
 - **Multiple optimizers**: SGD, Adam, RMSprop
@@ -220,6 +221,42 @@ let mut cell = PeepholeLSTMCell::new(input_size, hidden_size);
 let (h_t, c_t) = cell.forward(&input, &h_prev, &c_prev);
 ```
 
+#### Bidirectional LSTM
+
+```rust
+use rust_lstm::layers::bilstm_network::{BiLSTMNetwork, CombineMode};
+
+// Create BiLSTM with concatenated outputs (most common)
+let mut bilstm = BiLSTMNetwork::new_concat(input_size, hidden_size, num_layers);
+
+// Create BiLSTM with different combine modes
+let bilstm_sum = BiLSTMNetwork::new_sum(input_size, hidden_size, num_layers);
+let bilstm_avg = BiLSTMNetwork::new_average(input_size, hidden_size, num_layers);
+
+// Or specify combine mode explicitly
+let bilstm_custom = BiLSTMNetwork::new(input_size, hidden_size, num_layers, CombineMode::Concat);
+
+// Process a sequence (captures both past and future context)
+let sequence = vec![
+    Array2::from_shape_vec((input_size, 1), vec![0.1, 0.2]).unwrap(),
+    Array2::from_shape_vec((input_size, 1), vec![0.3, 0.4]).unwrap(),
+    Array2::from_shape_vec((input_size, 1), vec![0.5, 0.6]).unwrap(),
+];
+
+let outputs = bilstm.forward_sequence(&sequence);
+
+// BiLSTM with dropout
+let mut bilstm = BiLSTMNetwork::new_concat(input_size, hidden_size, num_layers)
+    .with_input_dropout(0.2, true)      // Variational input dropout
+    .with_recurrent_dropout(0.3, true)  // Variational recurrent dropout
+    .with_output_dropout(0.1);          // Standard output dropout
+
+// Output size depends on combine mode:
+// - Concat: 2 * hidden_size
+// - Sum/Average: hidden_size
+println!("Output size: {}", bilstm.output_size());
+```
+
 To run this example, save it as main.rs, and run:
 
 ```bash
@@ -233,6 +270,7 @@ The library includes several examples demonstrating different use cases:
 - `basic_usage.rs` - Simple forward pass example
 - `training_example.rs` - Complete training workflow with multiple optimizers
 - `dropout_example.rs` - Comprehensive dropout regularization demo
+- `bilstm_example.rs` - Bidirectional LSTM demonstration with different combine modes
 - `time_series_prediction.rs` - Time series forecasting
 - `text_generation_advanced.rs` - Character-level text generation
 - `multi_layer_lstm.rs` - Multi-layer network usage
@@ -246,6 +284,7 @@ Run examples with:
 ```bash
 cargo run --example training_example
 cargo run --example dropout_example
+cargo run --example bilstm_example
 cargo run --example time_series_prediction
 cargo run --example stock_prediction
 cargo run --example weather_prediction
