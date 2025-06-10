@@ -1,26 +1,32 @@
-# Rust build artifacts
+# Build artifacts
 /target/
-**/*.rs.bk
-Cargo.lock
+/Cargo.lock
 
 # IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Model files (temporary training outputs)
+models/
+*.model
+*.json
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # OS generated files
-.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db
 
 # Temporary files
 *~
 *.tmp
-*.swp
-*.swo
 
 # Coverage reports
 /target/debug/deps/*

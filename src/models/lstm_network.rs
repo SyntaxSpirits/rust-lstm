@@ -41,6 +41,21 @@ impl LSTMNetwork {
         }
     }
 
+    /// Creates a network from existing cells (used for deserialization)
+    pub fn from_cells(cells: Vec<LSTMCell>, input_size: usize, hidden_size: usize, num_layers: usize) -> Self {
+        LSTMNetwork {
+            cells,
+            input_size,
+            hidden_size,
+            num_layers,
+        }
+    }
+
+    /// Get reference to the cells (used for serialization)
+    pub fn get_cells(&self) -> &[LSTMCell] {
+        &self.cells
+    }
+
     /// Forward pass for inference (no caching)
     pub fn forward(&self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>) {
         let (hy, cy, _) = self.forward_with_cache(input, hx, cx);
