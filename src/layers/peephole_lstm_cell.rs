@@ -2,26 +2,18 @@ use ndarray::Array2;
 use rand_distr::{Distribution, Normal};
 
 /// Peephole LSTM cell with direct connections from cell state to gates
-/// 
-/// Extends standard LSTM by allowing gates to "peek" at the cell state:
-/// - i_t = σ(W_xi*x_t + W_hi*h_{t-1} + w_ci*c_{t-1} + b_i)
-/// - f_t = σ(W_xf*x_t + W_hf*h_{t-1} + w_cf*c_{t-1} + b_f)  
-/// - g_t = tanh(W_xc*x_t + W_hc*h_{t-1} + b_c)
-/// - o_t = σ(W_xo*x_t + W_ho*h_{t-1} + w_co*c_t + b_o)
-/// - c_t = f_t ⊙ c_{t-1} + i_t ⊙ g_t
-/// - h_t = o_t ⊙ tanh(c_t)
 pub struct PeepholeLSTMCell {
     // Input gate
-    pub w_xi: Array2<f64>,      // (hidden_size, input_size)
-    pub w_hi: Array2<f64>,      // (hidden_size, hidden_size)
-    pub b_i:  Array2<f64>,      // (hidden_size, 1)
-    pub w_ci: Array2<f64>,      // (hidden_size, 1) peephole connection
+    pub w_xi: Array2<f64>,
+    pub w_hi: Array2<f64>,
+    pub b_i:  Array2<f64>,
+    pub w_ci: Array2<f64>,
 
     // Forget gate
     pub w_xf: Array2<f64>,
     pub w_hf: Array2<f64>,
     pub b_f:  Array2<f64>,
-    pub w_cf: Array2<f64>,      // (hidden_size, 1) peephole connection
+    pub w_cf: Array2<f64>,
 
     // Cell update
     pub w_xc: Array2<f64>,
@@ -32,7 +24,7 @@ pub struct PeepholeLSTMCell {
     pub w_xo: Array2<f64>,
     pub w_ho: Array2<f64>,
     pub b_o:  Array2<f64>,
-    pub w_co: Array2<f64>,      // (hidden_size, 1) peephole connection
+    pub w_co: Array2<f64>,
 }
 
 impl PeepholeLSTMCell {
@@ -91,35 +83,29 @@ impl PeepholeLSTMCell {
         h_prev: &Array2<f64>,
         c_prev: &Array2<f64>,
     ) -> (Array2<f64>, Array2<f64>) {
-        // Input gate with peephole connection from previous cell state
         let i_t = &self.w_xi.dot(input)
             + &self.w_hi.dot(h_prev)
             + &self.b_i
             + &(&self.w_ci * c_prev);
         let i_t = i_t.map(|&x| sigmoid(x));
 
-        // Forget gate with peephole connection from previous cell state
         let f_t = &self.w_xf.dot(input)
             + &self.w_hf.dot(h_prev)
             + &self.b_f
             + &(&self.w_cf * c_prev);
         let f_t = f_t.map(|&x| sigmoid(x));
 
-        // Cell gate (no peephole connection)
         let g_t = (&self.w_xc.dot(input) + &self.w_hc.dot(h_prev) + &self.b_c)
             .map(|&x| x.tanh());
 
-        // Update cell state
         let c_t = f_t * c_prev + i_t * g_t;
 
-        // Output gate with peephole connection from current cell state
         let o_t = &self.w_xo.dot(input)
             + &self.w_ho.dot(h_prev)
             + &self.b_o
             + &(&self.w_co * &c_t);
         let o_t = o_t.map(|&x| sigmoid(x));
 
-        // Update hidden state
         let h_t = o_t * c_t.map(|&x| x.tanh());
 
         (h_t, c_t)

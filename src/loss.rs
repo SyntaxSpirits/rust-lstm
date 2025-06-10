@@ -9,7 +9,7 @@ pub trait LossFunction {
     fn compute_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64>;
 }
 
-/// Mean Squared Error: L = (1/n) Σ(y_pred - y_true)²
+/// Mean Squared Error loss function
 pub struct MSELoss;
 
 impl LossFunction for MSELoss {
@@ -25,7 +25,7 @@ impl LossFunction for MSELoss {
     }
 }
 
-/// Mean Absolute Error: L = (1/n) Σ|y_pred - y_true|
+/// Mean Absolute Error loss function
 pub struct MAELoss;
 
 impl LossFunction for MAELoss {
@@ -40,30 +40,28 @@ impl LossFunction for MAELoss {
     }
 }
 
-/// Cross-Entropy Loss with softmax: L = -Σ(y_true * log(softmax(y_pred)))
+/// Cross-Entropy Loss with softmax
 pub struct CrossEntropyLoss;
 
 impl LossFunction for CrossEntropyLoss {
     fn compute_loss(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> f64 {
         let softmax_preds = softmax(predictions);
-        let epsilon = 1e-15; // Numerical stability
+        let epsilon = 1e-15;
         let log_preds = softmax_preds.map(|x| (x + epsilon).ln());
         -(targets * log_preds).sum() / (predictions.shape()[1] as f64)
     }
     
     fn compute_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64> {
-        // Gradient of cross-entropy with softmax simplifies to: softmax(x) - y
         let softmax_preds = softmax(predictions);
         (softmax_preds - targets) / (predictions.shape()[1] as f64)
     }
 }
 
-/// Numerically stable softmax: softmax(x_i) = exp(x_i - max(x)) / Σexp(x_j - max(x))
+/// Numerically stable softmax function
 pub fn softmax(x: &Array2<f64>) -> Array2<f64> {
     let mut result = Array2::zeros(x.raw_dim());
     
     for (i, col) in x.axis_iter(ndarray::Axis(1)).enumerate() {
-        // Subtract max for numerical stability
         let max_val = col.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
         let exp_vals: Array1<f64> = col.map(|&val| (val - max_val).exp());
         let sum_exp = exp_vals.sum();

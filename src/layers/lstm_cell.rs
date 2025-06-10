@@ -32,20 +32,12 @@ pub struct LSTMCellCache {
 }
 
 /// LSTM cell with trainable parameters and dropout support
-/// 
-/// Implements the standard LSTM equations with optional dropout:
-/// - i_t = σ(W_xi * dropout(x_t) + W_hi * dropout_r(h_t-1) + b_i)
-/// - f_t = σ(W_xf * dropout(x_t) + W_hf * dropout_r(h_t-1) + b_f)
-/// - g_t = tanh(W_xg * dropout(x_t) + W_hg * dropout_r(h_t-1) + b_g)
-/// - o_t = σ(W_xo * dropout(x_t) + W_ho * dropout_r(h_t-1) + b_o)
-/// - c_t = f_t ⊙ c_t-1 + i_t ⊙ g_t
-/// - h_t = dropout_o(o_t ⊙ tanh(c_t))
 #[derive(Clone)]
 pub struct LSTMCell {
-    pub w_ih: Array2<f64>,  // input-to-hidden weights (4*hidden_size, input_size)
-    pub w_hh: Array2<f64>,  // hidden-to-hidden weights (4*hidden_size, hidden_size)
-    pub b_ih: Array2<f64>,  // input-to-hidden bias (4*hidden_size, 1)
-    pub b_hh: Array2<f64>,  // hidden-to-hidden bias (4*hidden_size, 1)
+    pub w_ih: Array2<f64>,
+    pub w_hh: Array2<f64>,
+    pub b_ih: Array2<f64>,
+    pub b_hh: Array2<f64>,
     pub hidden_size: usize,
     pub input_dropout: Option<Dropout>,
     pub recurrent_dropout: Option<Dropout>,
@@ -168,14 +160,12 @@ impl LSTMCell {
         let cell_gate = gates.slice(s![2*self.hidden_size..3*self.hidden_size, ..]).map(|&x| x.tanh());
         let output_gate = gates.slice(s![3*self.hidden_size..4*self.hidden_size, ..]).map(|&x| sigmoid(x));
 
-        // Cell state update: f_t ⊙ c_t-1 + i_t ⊙ g_t
         let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
 
         if let Some(ref zoneout) = self.zoneout {
             cy = zoneout.apply_cell_zoneout(&cy, cx);
         }
 
-        // Hidden state: o_t ⊙ tanh(c_t)
         let mut hy = &output_gate * cy.map(|&x| x.tanh());
 
         if let Some(ref zoneout) = self.zoneout {

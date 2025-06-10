@@ -61,7 +61,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             panic!("Inputs and targets must have the same length");
         }
 
-        // Ensure network is in training mode
         self.network.train();
 
         let (outputs, caches) = self.network.forward_sequence_with_cache(inputs);
@@ -69,7 +68,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
         let mut total_loss = 0.0;
         let mut total_gradients = self.network.zero_gradients();
 
-        // BPTT: accumulate gradients across all timesteps
         for (i, ((output, _), target)) in outputs.iter().zip(targets.iter()).enumerate().rev() {
             let loss = self.loss_function.compute_loss(output, target);
             total_loss += loss;
@@ -79,7 +77,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
             let (step_gradients, _) = self.network.backward(&dhy, &dcy, &caches[i]);
 
-            // Accumulate gradients across timesteps
             for (total_grad, step_grad) in total_gradients.iter_mut().zip(step_gradients.iter()) {
                 total_grad.w_ih = &total_grad.w_ih + &step_grad.w_ih;
                 total_grad.w_hh = &total_grad.w_hh + &step_grad.w_hh;
@@ -88,7 +85,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             }
         }
 
-        // Apply gradient clipping to prevent exploding gradients
         if let Some(clip_value) = self.config.clip_gradient {
             self.clip_gradients(&mut total_gradients, clip_value);
         }
@@ -116,9 +112,8 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             }
             epoch_loss /= train_data.len() as f64;
 
-            // Validation phase
             let validation_loss = if let Some(val_data) = validation_data {
-                self.network.eval(); // Set to evaluation mode for validation
+                self.network.eval();
                 Some(self.evaluate(val_data))
             } else {
                 None
@@ -151,7 +146,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
     /// Evaluate model performance on validation data
     pub fn evaluate(&mut self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
-        // Ensure network is in evaluation mode
         self.network.eval();
         
         let mut total_loss = 0.0;
@@ -180,7 +174,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
     /// Generate predictions for input sequences
     pub fn predict(&mut self, inputs: &[Array2<f64>]) -> Vec<Array2<f64>> {
-        // Ensure network is in evaluation mode for prediction
         self.network.eval();
         
         let (outputs, _) = self.network.forward_sequence_with_cache(inputs);

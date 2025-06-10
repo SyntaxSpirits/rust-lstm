@@ -1,6 +1,6 @@
 [package]
 name = "rust-lstm"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
 description = "A complete LSTM neural network library with training capabilities, multiple optimizers, and peephole variants."
@@ -51,3 +51,11 @@ path = "examples/real_data_example.rs"
 [[example]]
 name = "model_inspection"
 path = "examples/model_inspection.rs"
+
+[[example]]
+name = "bilstm_example"
+path = "examples/bilstm_example.rs"
+
+[[example]]
+name = "text_classification_bilstm"
+path = "examples/text_classification_bilstm.rs"

@@ -28,9 +28,9 @@ fn demonstrate_basic_dropout() {
 
     // Create network with standard dropout
     let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_input_dropout(0.2, false)      // 20% input dropout (non-variational)
-        .with_recurrent_dropout(0.3, false)  // 30% recurrent dropout (non-variational)
-        .with_output_dropout(0.1);           // 10% output dropout
+        .with_input_dropout(0.2, false)
+        .with_recurrent_dropout(0.3, false)
+        .with_output_dropout(0.1);
 
     let input = arr2(&[[1.0], [0.5], [-0.2], [0.8]]);
     let hx = Array2::zeros((hidden_size, 1));
@@ -65,8 +65,8 @@ fn demonstrate_variational_dropout() {
 
     // Create network with variational dropout (same mask across time steps)
     let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_input_dropout(0.25, true)      // Variational input dropout
-        .with_recurrent_dropout(0.2, true);  // Variational recurrent dropout
+        .with_input_dropout(0.25, true)
+        .with_recurrent_dropout(0.2, true);
 
     let sequence = vec![
         arr2(&[[1.0], [0.0], [0.5]]),

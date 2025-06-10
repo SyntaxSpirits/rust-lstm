@@ -1,11 +1,11 @@
 /// Utility functions for the LSTM library.
 
-/// Sigmoid activation function: σ(x) = 1 / (1 + e^(-x))
+/// Sigmoid activation function
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
 
-/// Hyperbolic tangent activation: tanh(x) = (e^x - e^(-x)) / (e^x + e^(-x))
+/// Hyperbolic tangent activation function
 pub fn tanh(x: f64) -> f64 {
     x.tanh()
 }

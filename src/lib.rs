@@ -1,11 +1,13 @@
 //! # Rust LSTM Library
 //! 
 //! A complete LSTM implementation with training capabilities, multiple optimizers,
-//! dropout regularization, and support for various architectures including peephole connections.
+//! dropout regularization, and support for various architectures including peephole 
+//! connections and bidirectional processing.
 //! 
 //! ## Core Components
 //! 
 //! - **LSTM Cells**: Standard and peephole LSTM implementations with full backpropagation
+//! - **Bidirectional LSTM**: Process sequences in both directions with flexible output combination
 //! - **Networks**: Multi-layer LSTM networks for sequence modeling
 //! - **Training**: Complete training system with BPTT, gradient clipping, and validation
 //! - **Optimizers**: SGD, Adam, and RMSprop optimizers with adaptive learning rates
@@ -43,6 +45,7 @@ pub mod persistence;
 pub use models::lstm_network::{LSTMNetwork, LayerDropoutConfig};
 pub use layers::lstm_cell::LSTMCell;
 pub use layers::peephole_lstm_cell::PeepholeLSTMCell;
+pub use layers::bilstm_network::{BiLSTMNetwork, CombineMode, BiLSTMNetworkCache};
 pub use layers::dropout::{Dropout, Zoneout};
 pub use training::{LSTMTrainer, TrainingConfig};
 pub use optimizers::{SGD, Adam, RMSprop};

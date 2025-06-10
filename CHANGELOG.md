@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-06-15
+
+### Added
+- **Bidirectional LSTM Networks**: Complete implementation of BiLSTM with flexible output combination modes
+- **Multiple Combine Modes**: Support for concatenation, sum, and average combination of forward/backward outputs
+- **Multi-layer BiLSTM**: Stacked bidirectional layers with proper input/output size handling
+- **BiLSTM Training Support**: Forward pass with caching for efficient gradient computation
+- **Dropout Compatibility**: Full support for input, recurrent, output dropout and zoneout in BiLSTM
+- **Examples and Documentation**:
+  - Comprehensive BiLSTM demonstration example
+  - Text classification comparison example (BiLSTM vs unidirectional LSTM)
+  - Updated documentation with usage examples
+- **API Integration**: BiLSTM seamlessly integrated with existing training and optimization systems
+
+### Technical Details
+- Implemented proper bidirectional sequence processing with forward and backward passes
+- Added efficient multi-layer processing with correct input dimension handling
+- Created comprehensive test suite for BiLSTM functionality
+- Maintained compatibility with existing LSTM training infrastructure
+
+### Benefits
+- Better context understanding for sequence modeling tasks
+- Improved performance on sequence labeling and classification
+- Access to both past and future context for each time step
+- Flexible output combination strategies for different use cases
+
 ## [0.2.0] - 2025-06-09
 
 ### Added
