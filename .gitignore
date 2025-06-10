@@ -1,4 +1,28 @@
+# Rust build artifacts
 /target/
-.vscode/
-
+**/*.rs.bk
 Cargo.lock
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*~
+*.tmp
+*.swp
+*.swo
+
+# Coverage reports
+/target/debug/deps/*
+lcov.info
+*.profraw
