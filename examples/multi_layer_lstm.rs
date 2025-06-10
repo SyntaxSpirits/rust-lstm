@@ -8,7 +8,7 @@ fn main() {
     let sequence_length = 5;
 
     // Create a multi-layer LSTM network
-    let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
+    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers);
 
     // Create a sequence of example input data
     let sequence = (0..sequence_length).map(|i| {

@@ -1,6 +1,6 @@
 # Rust-LSTM
 
-A comprehensive LSTM (Long Short-Term Memory) neural network library implemented in Rust. This library provides complete functionalities to create, train, and use LSTM networks for various sequence modeling tasks.
+A comprehensive LSTM (Long Short-Term Memory) neural network library implemented in Rust. This library provides complete functionalities to create, train, and use LSTM networks for various sequence modeling tasks with advanced dropout regularization.
 
 ## Features
 
@@ -10,8 +10,21 @@ A comprehensive LSTM (Long Short-Term Memory) neural network library implemented
 - **Complete training system** with backpropagation through time (BPTT)
 - **Multiple optimizers**: SGD, Adam, RMSprop
 - **Loss functions**: MSE, MAE, Cross-entropy with softmax
+- **Dropout regularization**: Input, recurrent, output dropout and zoneout
 - **Training utilities**: gradient clipping, validation, metrics tracking
 - **Random initialization** of weights and biases
+- **Model persistence**: Save/load models in JSON or binary format
+
+## Dropout Features
+
+The library provides comprehensive dropout support for regularization:
+
+- **Input Dropout**: Applied to inputs before computing gates
+- **Recurrent Dropout**: Applied to hidden states (supports variational dropout)
+- **Output Dropout**: Applied to LSTM layer outputs
+- **Variational Dropout**: Uses same mask across time steps for RNNs
+- **Zoneout**: Randomly preserves hidden/cell state values from previous timestep
+- **Layer-specific Configuration**: Different dropout settings per layer
 
 ## Getting Started
 
@@ -25,7 +38,7 @@ To use Rust-LSTM in your project, add the following to your Cargo.toml:
 
 ```toml
 [dependencies]
-rust-lstm = "0.1.0"
+rust-lstm = "0.2.0"
 ```
 
 Then, run the following command to build your project and download the Rust-LSTM crate:
@@ -50,7 +63,7 @@ fn main() {
     let num_layers = 2;
 
     // Create an LSTM network
-    let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
+    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers);
 
     // Create some example input data
     let input = Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap();
@@ -67,6 +80,48 @@ fn main() {
 }
 ```
 
+### LSTM with Dropout Regularization
+
+Here's how to create an LSTM network with comprehensive dropout:
+
+```rust
+use ndarray::Array2;
+use rust_lstm::{LSTMNetwork, LayerDropoutConfig};
+
+fn main() {
+    let input_size = 10;
+    let hidden_size = 20;
+    let num_layers = 3;
+
+    // Create network with uniform dropout across all layers
+    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
+        .with_input_dropout(0.2, true)      // 20% variational input dropout
+        .with_recurrent_dropout(0.3, true)  // 30% variational recurrent dropout
+        .with_output_dropout(0.1)           // 10% output dropout
+        .with_zoneout(0.05, 0.1);          // 5% cell, 10% hidden zoneout
+
+    // Or configure dropout per layer for fine-grained control
+    let layer_configs = vec![
+        LayerDropoutConfig::new()
+            .with_input_dropout(0.1, false),
+        LayerDropoutConfig::new()
+            .with_recurrent_dropout(0.2, true)
+            .with_zoneout(0.05, 0.1),
+        LayerDropoutConfig::new()
+            .with_output_dropout(0.1),
+    ];
+    
+    let mut custom_network = LSTMNetwork::new(input_size, hidden_size, num_layers)
+        .with_layer_dropout(layer_configs);
+
+    // Set training mode (enables dropout)
+    network.train();
+    
+    // Set evaluation mode (disables dropout)
+    network.eval();
+}
+```
+
 ### Training an LSTM Network
 
 Here's how to train an LSTM for time series prediction:
@@ -79,8 +134,11 @@ use rust_lstm::optimizers::Adam;
 use rust_lstm::loss::MSELoss;
 
 fn main() {
-    // Create network
-    let network = LSTMNetwork::new(1, 10, 2);
+    // Create network with dropout regularization
+    let network = LSTMNetwork::new(1, 10, 2)
+        .with_input_dropout(0.2, true)
+        .with_recurrent_dropout(0.3, true)
+        .with_output_dropout(0.1);
     
     // Setup training with Adam optimizer
     let loss_function = MSELoss;
@@ -98,17 +156,32 @@ fn main() {
     // Generate some training data (sine wave prediction)
     let train_data = generate_sine_wave_data();
     
-    // Train the model
+    // Train the model (automatically handles train/eval modes)
     trainer.train(&train_data, None);
     
-    // Make predictions
+    // Make predictions (automatically sets eval mode)
     let predictions = trainer.predict(&input_sequence);
 }
 ```
 
 ### Advanced Features
 
-#### Using Different Optimizers
+#### Dropout Types
+
+```rust
+use rust_lstm::layers::dropout::{Dropout, Zoneout};
+
+// Standard dropout
+let mut dropout = Dropout::new(0.3);
+
+// Variational dropout (same mask across time steps)
+let mut variational_dropout = Dropout::variational(0.3);
+
+// Zoneout for RNN hidden/cell states
+let zoneout = Zoneout::new(0.1, 0.15); // cell_rate, hidden_rate
+```
+
+#### Different Optimizers
 
 ```rust
 use rust_lstm::optimizers::{SGD, Adam, RMSprop};
@@ -143,7 +216,7 @@ let ce_loss = CrossEntropyLoss;
 ```rust
 use rust_lstm::layers::peephole_lstm_cell::PeepholeLSTMCell;
 
-let cell = PeepholeLSTMCell::new(input_size, hidden_size);
+let mut cell = PeepholeLSTMCell::new(input_size, hidden_size);
 let (h_t, c_t) = cell.forward(&input, &h_prev, &c_prev);
 ```
 
@@ -159,28 +232,36 @@ The library includes several examples demonstrating different use cases:
 
 - `basic_usage.rs` - Simple forward pass example
 - `training_example.rs` - Complete training workflow with multiple optimizers
+- `dropout_example.rs` - Comprehensive dropout regularization demo
 - `time_series_prediction.rs` - Time series forecasting
-- `text_generation.rs` - Character-level text generation
+- `text_generation_advanced.rs` - Character-level text generation
 - `multi_layer_lstm.rs` - Multi-layer network usage
-- `peephole.rs` - Peephole LSTM variant
+- `model_inspection.rs` - Model analysis and debugging utilities
+- `stock_prediction.rs` - Financial time series prediction
+- `weather_prediction.rs` - Weather forecasting with multiple features
+- `real_data_example.rs` - Real-world data loading and processing
 
 Run examples with:
 
 ```bash
 cargo run --example training_example
+cargo run --example dropout_example
 cargo run --example time_series_prediction
+cargo run --example stock_prediction
+cargo run --example weather_prediction
 ```
 
 ## Architecture
 
 The library is organized into several modules:
 
-- **`layers`**: LSTM cell implementations (standard and peephole variants)
-- **`models`**: High-level network architectures
+- **`layers`**: LSTM cell implementations (standard and peephole variants) with dropout support
+- **`models`**: High-level network architectures with configurable dropout
 - **`loss`**: Loss functions for training
 - **`optimizers`**: Optimization algorithms
-- **`training`**: Training utilities and trainer struct
+- **`training`**: Training utilities and trainer struct with automatic train/eval mode handling
 - **`utils`**: Common utility functions
+- **`persistence`**: Model saving and loading functionality
 
 ## Training Features
 
@@ -190,6 +271,17 @@ The library is organized into several modules:
 - **Validation Support**: Track validation metrics during training
 - **Metrics Tracking**: Loss curves and training progress monitoring
 - **Flexible Training Loop**: Configurable epochs, learning rates, and logging
+- **Automatic Mode Switching**: Training and evaluation modes for dropout
+
+## Dropout and Regularization
+
+- **Input Dropout**: Regularizes input features
+- **Recurrent Dropout**: Regularizes hidden state connections
+- **Output Dropout**: Regularizes layer outputs
+- **Variational Dropout**: Consistent masks across time steps
+- **Zoneout**: RNN-specific regularization technique
+- **Layer-specific Configuration**: Fine-grained dropout control
+- **Automatic Train/Eval Switching**: Seamless mode management
 
 ## Running the Tests
 
@@ -199,16 +291,14 @@ To run the tests included with Rust-LSTM, execute:
 cargo test
 ```
 
-This will run all the unit and integration tests defined in the library.
+## Version History
+
+- **v0.1.0**: Initial LSTM implementation with forward pass
+- **v0.2.0**: Complete training system with BPTT, optimizers, and comprehensive dropout support
 
 ## Contributing
 
-Contributions to Rust-LSTM are welcome! Here are a few ways you can help:
-
-- Report bugs and issues
-- Suggest new features or improvements
-- Open a pull request with improvements to code or documentation
-- Please read CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests to us.
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
 ## License
 

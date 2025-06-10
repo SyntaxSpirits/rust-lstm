@@ -22,6 +22,7 @@ struct CSVDataLoader {
 
 impl CSVDataLoader {
     /// Load data from CSV file with headers
+    #[allow(dead_code)]
     fn from_csv(file_path: &str, target_column: &str) -> std::io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
@@ -37,7 +38,7 @@ impl CSVDataLoader {
             .collect();
         
         // Find target column index
-        let target_idx = headers.iter().position(|h| h == target_column)
+        let _target_idx = headers.iter().position(|h| h == target_column)
             .ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, 
                                    format!("Target column '{}' not found", target_column))
@@ -249,12 +250,12 @@ impl TimeSeriesPredictor {
     }
     
     /// Make prediction for next time step
-    fn predict_next(&self, data_loader: &CSVDataLoader, recent_data: &[DataPoint]) -> Option<f64> {
+    fn predict_next(&mut self, data_loader: &CSVDataLoader, recent_data: &[DataPoint]) -> Option<f64> {
         if recent_data.len() < self.sequence_length {
             return None;
         }
         
-        let trainer = self.trainer.as_ref()?;
+        let trainer = self.trainer.as_mut()?;
         
         let start_idx = recent_data.len() - self.sequence_length;
         let inputs: Vec<Array2<f64>> = recent_data[start_idx..]

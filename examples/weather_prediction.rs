@@ -6,6 +6,7 @@ use rust_lstm::optimizers::Adam;
 
 /// Weather data with multiple meteorological features
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct WeatherData {
     date: String,
     temperature: f64,    // °C
@@ -153,18 +154,19 @@ impl WeatherPredictor {
     }
 
     /// Predict next day's temperature
-    fn predict_temperature(&self, recent_data: &[WeatherData]) -> Option<f64> {
+    fn predict_temperature(&mut self, recent_data: &[WeatherData]) -> Option<f64> {
         if recent_data.len() < self.sequence_length {
             return None;
         }
 
-        let trainer = self.trainer.as_ref()?;
-
+        // Prepare input sequence first (before getting mutable trainer reference)
         let start_idx = recent_data.len() - self.sequence_length;
         let inputs: Vec<Array2<f64>> = recent_data[start_idx..]
             .iter()
             .map(|weather| self.normalize_features(weather))
             .collect();
+
+        let trainer = self.trainer.as_mut()?;
 
         let predictions = trainer.predict(&inputs);
 
