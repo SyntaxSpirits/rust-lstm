@@ -9,9 +9,8 @@
 *.swo
 
 # Model files (temporary training outputs)
-models/
+/models/
 *.model
-*.json
 
 # OS files
 .DS_Store
