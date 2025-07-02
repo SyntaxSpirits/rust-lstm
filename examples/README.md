@@ -118,7 +118,7 @@ cargo run --example training_example
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and navigate to the project
-git clone https://github.com/yourusername/rust-lstm
+git clone https://github.com/SyntaxSpirits/rust-lstm
 cd rust-lstm
 ```
 

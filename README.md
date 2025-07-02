@@ -1,6 +1,35 @@
 # Rust-LSTM
 
+[![Crates.io](https://img.shields.io/crates/v/rust-lstm.svg)](https://crates.io/crates/rust-lstm)
+[![Documentation](https://docs.rs/rust-lstm/badge.svg)](https://docs.rs/rust-lstm)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
+
 A comprehensive LSTM (Long Short-Term Memory) neural network library implemented in Rust with complete training capabilities, multiple optimizers, and advanced regularization.
+
+## Network Architecture Overview
+
+```mermaid
+graph TD
+    A["Input Sequence<br/>(x₁, x₂, ..., xₜ)"] --> B["LSTM Layer 1"]
+    B --> C["LSTM Layer 2"]
+    C --> D["Output Layer"]
+    D --> E["Predictions<br/>(y₁, y₂, ..., yₜ)"]
+    
+    F["Hidden State h₀"] --> B
+    G["Cell State c₀"] --> B
+    
+    B --> H["Hidden State h₁"]
+    B --> I["Cell State c₁"]
+    
+    H --> C
+    I --> C
+    
+    style A fill:#e1f5fe
+    style E fill:#e8f5e8
+    style B fill:#fff3e0
+    style C fill:#fff3e0
+```
 
 ## Features
 
@@ -83,6 +112,28 @@ let mut bilstm = BiLSTMNetwork::new_concat(input_size, hidden_size, num_layers);
 let outputs = bilstm.forward_sequence(&sequence);
 ```
 
+#### BiLSTM Architecture
+
+```mermaid
+graph TD
+    A["Input Sequence<br/>(x₁, x₂, x₃, x₄)"] --> B["Forward LSTM"]
+    A --> C["Backward LSTM"]
+    
+    B --> D["Forward Hidden States<br/>(h₁→, h₂→, h₃→, h₄→)"]
+    C --> E["Backward Hidden States<br/>(h₁←, h₂←, h₃←, h₄←)"]
+    
+    D --> F["Combine Layer<br/>(Concat/Sum/Average)"]
+    E --> F
+    
+    F --> G["BiLSTM Output<br/>(combined representations)"]
+    
+    style A fill:#e1f5fe
+    style B fill:#fff3e0
+    style C fill:#fff3e0
+    style F fill:#f3e5f5
+    style G fill:#e8f5e8
+```
+
 ### GRU Networks
 
 ```rust
@@ -95,6 +146,43 @@ let mut gru = GRUNetwork::new(input_size, hidden_size, num_layers)
 
 // Forward pass
 let (output, _) = gru.forward(&input, &hidden_state);
+```
+
+#### LSTM vs GRU Cell Comparison
+
+```mermaid
+graph LR
+    subgraph "LSTM Cell"
+        A1["Input xₜ"] --> B1["Forget Gate<br/>fₜ = σ(Wf·[hₜ₋₁,xₜ] + bf)"]
+        A1 --> C1["Input Gate<br/>iₜ = σ(Wi·[hₜ₋₁,xₜ] + bi)"]
+        A1 --> D1["Candidate Values<br/>C̃ₜ = tanh(WC·[hₜ₋₁,xₜ] + bC)"]
+        A1 --> E1["Output Gate<br/>oₜ = σ(Wo·[hₜ₋₁,xₜ] + bo)"]
+        
+        B1 --> F1["Cell State<br/>Cₜ = fₜ * Cₜ₋₁ + iₜ * C̃ₜ"]
+        C1 --> F1
+        D1 --> F1
+        
+        F1 --> G1["Hidden State<br/>hₜ = oₜ * tanh(Cₜ)"]
+        E1 --> G1
+    end
+    
+    subgraph "GRU Cell"
+        A2["Input xₜ"] --> B2["Reset Gate<br/>rₜ = σ(Wr·[hₜ₋₁,xₜ])"]
+        A2 --> C2["Update Gate<br/>zₜ = σ(Wz·[hₜ₋₁,xₜ])"]
+        A2 --> D2["Candidate State<br/>h̃ₜ = tanh(W·[rₜ*hₜ₋₁,xₜ])"]
+        
+        B2 --> D2
+        C2 --> E2["Hidden State<br/>hₜ = (1-zₜ)*hₜ₋₁ + zₜ*h̃ₜ"]
+        D2 --> E2
+    end
+    
+    style B1 fill:#ffcdd2
+    style C1 fill:#c8e6c9
+    style D1 fill:#fff3e0
+    style E1 fill:#e1f5fe
+    style B2 fill:#ffcdd2
+    style C2 fill:#c8e6c9
+    style D2 fill:#fff3e0
 ```
 
 ### Learning Rate Scheduling
@@ -123,25 +211,29 @@ let mut trainer = create_one_cycle_trainer(network, 0.1, 100);
 Run examples to see the library in action:
 
 ```bash
-# Basic training workflow
+# Basic usage and training
+cargo run --example basic_usage
 cargo run --example training_example
+cargo run --example multi_layer_lstm
+cargo run --example time_series_prediction
 
-# GRU vs LSTM comparison
-cargo run --example gru_example
+# Advanced architectures
+cargo run --example gru_example              # GRU vs LSTM comparison
+cargo run --example bilstm_example           # Bidirectional LSTM
+cargo run --example dropout_example          # Comprehensive dropout demo
 
-# Comprehensive dropout demo
-cargo run --example dropout_example
-
-# Bidirectional LSTM
-cargo run --example bilstm_example
-
-# Learning rate scheduling
+# Learning and scheduling
 cargo run --example learning_rate_scheduling
 
 # Real-world applications
 cargo run --example stock_prediction
 cargo run --example weather_prediction
 cargo run --example text_classification_bilstm
+cargo run --example text_generation_advanced
+cargo run --example real_data_example
+
+# Analysis and debugging
+cargo run --example model_inspection
 ```
 
 ## Advanced Features
@@ -173,6 +265,33 @@ cargo run --example text_classification_bilstm
 ```bash
 cargo test
 ```
+
+## Performance Examples
+
+The library includes comprehensive examples that demonstrate its capabilities. Here are some suggested visualizations you can generate by running the examples:
+
+### Training Curves
+Run the learning rate scheduling example to see different scheduler behaviors:
+```bash
+cargo run --example learning_rate_scheduling
+```
+> **Suggested visualization**: Learning rate curves and loss curves for different schedulers
+
+### Architecture Comparison  
+Compare LSTM vs GRU performance:
+```bash
+cargo run --example gru_example
+```
+> **Suggested visualization**: Training time and accuracy comparison charts
+
+### Real-world Applications
+Generate prediction plots from the examples:
+```bash
+cargo run --example stock_prediction      # Stock price predictions
+cargo run --example weather_prediction    # Weather forecasting  
+cargo run --example text_classification_bilstm  # Classification accuracy
+```
+> **Suggested visualization**: Prediction vs actual plots, confusion matrices, and accuracy metrics
 
 ## Version History
 

@@ -3,6 +3,7 @@ name = "rust-lstm"
 version = "0.3.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
+rust-version = "1.70"
 description = "A complete LSTM neural network library with training capabilities, multiple optimizers, and peephole variants."
 license = "MIT"
 repository = "https://github.com/SyntaxSpirits/rust-lstm"
@@ -63,3 +64,19 @@ path = "examples/text_classification_bilstm.rs"
 [[example]]
 name = "learning_rate_scheduling"
 path = "examples/learning_rate_scheduling.rs"
+
+[[example]]
+name = "gru_example"
+path = "examples/gru_example.rs"
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "time_series_prediction"
+path = "examples/time_series_prediction.rs"
+
+[[example]]
+name = "multi_layer_lstm"
+path = "examples/multi_layer_lstm.rs"
