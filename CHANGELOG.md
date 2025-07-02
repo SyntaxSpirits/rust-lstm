@@ -5,33 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2025-06-15
+## [0.3.0] - 2025-07-03
 
 ### Added
-- **Bidirectional LSTM Networks**: Complete implementation of BiLSTM with flexible output combination modes
-- **Multiple Combine Modes**: Support for concatenation, sum, and average combination of forward/backward outputs
-- **Multi-layer BiLSTM**: Stacked bidirectional layers with proper input/output size handling
-- **BiLSTM Training Support**: Forward pass with caching for efficient gradient computation
-- **Dropout Compatibility**: Full support for input, recurrent, output dropout and zoneout in BiLSTM
-- **Examples and Documentation**:
-  - Comprehensive BiLSTM demonstration example
-  - Text classification comparison example (BiLSTM vs unidirectional LSTM)
-  - Updated documentation with usage examples
-- **API Integration**: BiLSTM seamlessly integrated with existing training and optimization systems
+- **Learning Rate Scheduling System**: Comprehensive scheduling framework with multiple schedulers
+  - StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, OneCycleLR, ReduceLROnPlateau, LinearLR
+  - Convenient trainer factory functions: `create_step_lr_trainer`, `create_one_cycle_trainer`, etc.
+  - Automatic scheduler stepping during training with optional logging
+  - Support for both validation-based and epoch-based scheduling
 
-### Technical Details
-- Implemented proper bidirectional sequence processing with forward and backward passes
-- Added efficient multi-layer processing with correct input dimension handling
-- Created comprehensive test suite for BiLSTM functionality
-- Maintained compatibility with existing LSTM training infrastructure
+- **GRU (Gated Recurrent Unit) Implementation**: Complete GRU architecture as alternative to LSTM
+  - Multi-layer GRU networks with configurable architecture
+  - Full dropout support (input, recurrent, output dropout and zoneout)
+  - Forward and backward propagation with gradient computation
+  - Training integration with existing optimizer and loss function systems
+  - Comprehensive example demonstrating GRU usage and comparison with LSTM
+
+- **Bidirectional LSTM Networks**: Complete BiLSTM implementation with flexible output combination
+  - Multiple combine modes: concatenation, sum, and average of forward/backward outputs
+  - Multi-layer BiLSTM with proper input/output size handling
+  - Full dropout compatibility (input, recurrent, output dropout and zoneout)
+  - Sequence processing with both past and future context
+  - Text classification example comparing BiLSTM vs unidirectional LSTM
+
+- **Enhanced Dropout Regularization**: Comprehensive dropout system with extensive testing
+  - Variational dropout with consistent masks across time steps
+  - Layer-specific dropout configuration for fine-grained control
+  - Zoneout implementation for RNN-specific regularization
+  - Automatic train/eval mode switching
+  - Comprehensive dropout demonstration example
+
+- **Model Persistence System**: Complete model saving and loading infrastructure
+  - JSON and binary serialization formats
+  - Model metadata tracking (architecture, training info, timestamps)
+  - State preservation for weights, biases, and optimizer states
+  - Model inspection utilities for debugging and analysis
+  - Comprehensive persistence testing
+
+- **Enhanced Examples and Documentation**:
+  - Learning rate scheduling comprehensive example
+  - GRU vs LSTM comparison example
+  - Bidirectional LSTM demonstration
+  - Enhanced dropout regularization examples
+  - Model inspection and analysis utilities
+  - Real-world applications (stock prediction, weather forecasting, text classification)
+
+### Technical Improvements
+- Modular scheduler architecture with trait-based design
+- Efficient bidirectional sequence processing implementation
+- Enhanced gradient computation for GRU cells
+- Improved testing coverage with comprehensive test suites
+- Better code organization and documentation
+- Performance optimizations for training workflows
 
 ### Benefits
-- Better context understanding for sequence modeling tasks
-- Improved performance on sequence labeling and classification
-- Access to both past and future context for each time step
-- Flexible output combination strategies for different use cases
+- More flexible training with advanced learning rate strategies
+- Alternative RNN architecture (GRU) for different use cases
+- Better sequence modeling with bidirectional context
+- Robust regularization options for preventing overfitting
+- Reliable model persistence for production deployments
+- Comprehensive examples for real-world applications
 
-## [0.2.0] - 2025-06-09
+## [0.2.0] - 2024-06-09
 
 ### Added
 - **Complete Training System**: Full backpropagation through time (BPTT) implementation
@@ -154,4 +189,4 @@ When contributing to this project, please:
 
 - **v0.1.0**: Initial LSTM implementation with forward pass
 - **v0.2.0**: Complete training system with BPTT and optimizers
-- **Current**: Documentation improvements and code polish 
+- **v0.3.0**: Learning rate scheduling, GRU implementation, BiLSTM, enhanced dropout, and model persistence 
