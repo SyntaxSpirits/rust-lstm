@@ -43,13 +43,15 @@ pub mod persistence;
 
 // Re-export commonly used items
 pub use models::lstm_network::{LSTMNetwork, LayerDropoutConfig};
+pub use models::gru_network::{GRUNetwork, LayerDropoutConfig as GRULayerDropoutConfig, GRUNetworkCache};
 pub use layers::lstm_cell::LSTMCell;
 pub use layers::peephole_lstm_cell::PeepholeLSTMCell;
+pub use layers::gru_cell::{GRUCell, GRUCellGradients, GRUCellCache};
 pub use layers::bilstm_network::{BiLSTMNetwork, CombineMode, BiLSTMNetworkCache};
 pub use layers::dropout::{Dropout, Zoneout};
 pub use training::{LSTMTrainer, TrainingConfig};
 pub use optimizers::{SGD, Adam, RMSprop};
-pub use loss::{MSELoss, MAELoss, CrossEntropyLoss};
+pub use loss::{LossFunction, MSELoss, MAELoss, CrossEntropyLoss};
 pub use persistence::{ModelPersistence, PersistentModel, ModelMetadata, PersistenceError};
 
 #[cfg(test)]
