@@ -13,6 +13,7 @@ A comprehensive LSTM (Long Short-Term Memory) neural network library implemented
 - **Loss functions**: MSE, MAE, Cross-entropy with softmax
 - **Dropout regularization**: Input, recurrent, output dropout and zoneout
 - **Training utilities**: gradient clipping, validation, metrics tracking
+- **Learning rate scheduling**: StepLR, ExponentialLR, CosineAnnealing, OneCycleLR, ReduceLROnPlateau
 - **Random initialization** of weights and biases
 - **Model persistence**: Save/load models in JSON or binary format
 
@@ -120,6 +121,84 @@ fn main() {
     
     // Set evaluation mode (disables dropout)
     network.eval();
+}
+```
+
+### Learning Rate Scheduling
+
+The library provides comprehensive learning rate scheduling for optimal training dynamics:
+
+```rust
+use rust_lstm::{
+    LSTMNetwork, ScheduledLSTMTrainer, ScheduledOptimizer, TrainingConfig,
+    Adam, StepLR, OneCycleLR, CosineAnnealingLR,
+    create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer
+};
+
+// Quick start with convenient functions
+let network = LSTMNetwork::new(10, 20, 2);
+
+// Step learning rate: reduce by 50% every 10 epochs
+let mut trainer = create_step_lr_trainer(network.clone(), 0.01, 10, 0.5);
+
+// OneCycle policy: popular for modern deep learning
+let mut trainer = create_one_cycle_trainer(network.clone(), 0.1, 100);
+
+// Cosine annealing: smooth oscillation
+let mut trainer = create_cosine_annealing_trainer(network, 0.01, 50, 1e-6);
+
+// All schedulers integrate seamlessly with training
+trainer.train(&train_data, Some(&validation_data));
+```
+
+#### Available Schedulers
+
+- **StepLR**: Decay LR by gamma every step_size epochs
+- **MultiStepLR**: Decay LR by gamma at specific milestones
+- **ExponentialLR**: Decay LR by gamma every epoch
+- **CosineAnnealingLR**: Cosine annealing with optional warm restarts
+- **OneCycleLR**: One cycle policy (warmup + annealing)
+- **ReduceLROnPlateau**: Reduce when validation loss plateaus
+- **LinearLR**: Linear interpolation between start and end factors
+
+#### Manual Scheduler Configuration
+
+```rust
+// Create custom scheduled optimizer
+let scheduled_optimizer = ScheduledOptimizer::new(
+    Adam::new(0.001),           // Base optimizer  
+    StepLR::new(20, 0.1),       // Scheduler
+    0.001                       // Base learning rate
+);
+
+let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
+    .with_config(TrainingConfig {
+        epochs: 100,
+        print_every: 10,
+        log_lr_changes: true,   // Log LR changes
+        ..Default::default()
+    });
+
+// Automatic scheduler stepping during training
+trainer.train(&train_data, Some(&validation_data));
+
+// Access current learning rate
+println!("Current LR: {:.2e}", trainer.get_current_lr());
+```
+
+#### ReduceLROnPlateau Special Handling
+
+```rust
+// ReduceLROnPlateau requires validation loss feedback
+let mut plateau_scheduler = ReduceLROnPlateau::new(0.5, 5); // factor=0.5, patience=5
+let mut optimizer = Adam::new(0.01);
+
+// Manual stepping with validation loss
+for epoch in 0..epochs {
+    // ... training code ...
+    let val_loss = evaluate_model();
+    let new_lr = plateau_scheduler.step(val_loss, 0.01);
+    optimizer.set_learning_rate(new_lr);
 }
 ```
 

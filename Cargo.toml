@@ -59,3 +59,7 @@ path = "examples/bilstm_example.rs"
 [[example]]
 name = "text_classification_bilstm"
 path = "examples/text_classification_bilstm.rs"
+
+[[example]]
+name = "learning_rate_scheduling"
+path = "examples/learning_rate_scheduling.rs"

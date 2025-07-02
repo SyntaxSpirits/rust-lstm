@@ -38,6 +38,7 @@ pub mod layers;
 pub mod models;
 pub mod loss;
 pub mod optimizers;
+pub mod schedulers;
 pub mod training;
 pub mod persistence;
 
@@ -49,8 +50,16 @@ pub use layers::peephole_lstm_cell::PeepholeLSTMCell;
 pub use layers::gru_cell::{GRUCell, GRUCellGradients, GRUCellCache};
 pub use layers::bilstm_network::{BiLSTMNetwork, CombineMode, BiLSTMNetworkCache};
 pub use layers::dropout::{Dropout, Zoneout};
-pub use training::{LSTMTrainer, TrainingConfig};
-pub use optimizers::{SGD, Adam, RMSprop};
+pub use training::{
+    LSTMTrainer, ScheduledLSTMTrainer, TrainingConfig, 
+    create_basic_trainer, create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer
+};
+pub use optimizers::{SGD, Adam, RMSprop, ScheduledOptimizer};
+pub use schedulers::{
+    LearningRateScheduler, ConstantLR, StepLR, MultiStepLR, ExponentialLR, 
+    CosineAnnealingLR, CosineAnnealingWarmRestarts, OneCycleLR, 
+    ReduceLROnPlateau, LinearLR, AnnealStrategy
+};
 pub use loss::{LossFunction, MSELoss, MAELoss, CrossEntropyLoss};
 pub use persistence::{ModelPersistence, PersistentModel, ModelMetadata, PersistenceError};
 
