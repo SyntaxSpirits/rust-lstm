@@ -178,6 +178,7 @@ fn test_persistence_with_trained_model() {
         epochs: 2,
         print_every: 1,
         clip_gradient: Some(1.0),
+        log_lr_changes: false,
     };
     trainer = trainer.with_config(config);
     trainer.train(&train_data, None);
