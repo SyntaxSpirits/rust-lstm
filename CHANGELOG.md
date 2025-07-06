@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-07-06
+
+### Added
+- **Advanced Learning Rate Scheduling**: Comprehensive expansion of learning rate scheduling capabilities
+  - **PolynomialLR**: Polynomial decay with configurable power for smooth learning rate transitions
+  - **CyclicalLR**: Cyclical learning rates with triangular, triangular2, and exponential range modes
+  - **WarmupScheduler**: Generic warmup wrapper that can be applied to any base scheduler
+  - **LRScheduleVisualizer**: ASCII visualization tool for learning rate schedules
+  
+- **Enhanced Scheduler Integration**:
+  - Convenience factory methods for new schedulers in `ScheduledOptimizer`
+  - Helper functions: `polynomial`, `cyclical`, `cyclical_triangular2`, `cyclical_exp_range`
+  - Complete integration with existing training infrastructure
+  - Comprehensive test coverage for all new schedulers
+
+- **Learning Rate Visualization**:
+  - ASCII-based schedule visualization with customizable dimensions
+  - Schedule generation utilities for analysis and debugging
+  - Visual comparison tools for different scheduler behaviors
+  - Integration examples showing visualization usage
+
+- **Advanced Training Examples**:
+  - `advanced_lr_scheduling.rs`: Comprehensive demonstration of new schedulers
+  - Warmup + cyclical learning rate combinations
+  - Best practices example with dropout + gradient clipping + advanced scheduling
+  - Performance comparison between different scheduling strategies
+
+### Technical Improvements
+- Extended scheduler trait system to support generic warmup wrapper
+- Robust cyclical learning rate computation with proper cycle handling
+- Polynomial decay implementation with numerical stability
+- Comprehensive error handling and edge case management
+- Enhanced documentation with visual examples and mathematical formulations
+
+### Benefits
+- More sophisticated learning rate control for better training quality
+- Modern scheduling techniques used in state-of-the-art deep learning
+- Visualization capabilities for schedule analysis and debugging
+- Flexible warmup support for any existing scheduler
+- Production-ready implementations with comprehensive testing
+
 ## [0.3.0] - 2025-07-03
 
 ### Added
@@ -189,4 +230,5 @@ When contributing to this project, please:
 
 - **v0.1.0**: Initial LSTM implementation with forward pass
 - **v0.2.0**: Complete training system with BPTT and optimizers
-- **v0.3.0**: Learning rate scheduling, GRU implementation, BiLSTM, enhanced dropout, and model persistence 
+- **v0.3.0**: Learning rate scheduling, GRU implementation, BiLSTM, enhanced dropout, and model persistence
+- **v0.4.0**: Advanced learning rate scheduling with 12 different schedulers, warmup support, cyclical rates, and visualization 

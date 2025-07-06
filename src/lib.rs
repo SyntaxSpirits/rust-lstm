@@ -58,7 +58,9 @@ pub use optimizers::{SGD, Adam, RMSprop, ScheduledOptimizer};
 pub use schedulers::{
     LearningRateScheduler, ConstantLR, StepLR, MultiStepLR, ExponentialLR, 
     CosineAnnealingLR, CosineAnnealingWarmRestarts, OneCycleLR, 
-    ReduceLROnPlateau, LinearLR, AnnealStrategy
+    ReduceLROnPlateau, LinearLR, AnnealStrategy,
+    PolynomialLR, CyclicalLR, CyclicalMode, ScaleMode, WarmupScheduler,
+    LRScheduleVisualizer
 };
 pub use loss::{LossFunction, MSELoss, MAELoss, CrossEntropyLoss};
 pub use persistence::{ModelPersistence, PersistentModel, ModelMetadata, PersistenceError};

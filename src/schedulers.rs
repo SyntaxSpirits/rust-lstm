@@ -420,6 +420,237 @@ impl LearningRateScheduler for LinearLR {
     }
 }
 
+/// Polynomial learning rate decay
+#[derive(Clone, Debug)]
+pub struct PolynomialLR {
+    total_iters: usize,
+    power: f64,
+    end_lr: f64,
+}
+
+impl PolynomialLR {
+    pub fn new(total_iters: usize, power: f64, end_lr: f64) -> Self {
+        PolynomialLR {
+            total_iters,
+            power,
+            end_lr,
+        }
+    }
+}
+
+impl LearningRateScheduler for PolynomialLR {
+    fn get_lr(&mut self, epoch: usize, base_lr: f64) -> f64 {
+        if epoch >= self.total_iters {
+            return self.end_lr;
+        }
+        
+        let factor = (1.0 - epoch as f64 / self.total_iters as f64).powf(self.power);
+        self.end_lr + (base_lr - self.end_lr) * factor
+    }
+    
+    fn reset(&mut self) {}
+    
+    fn name(&self) -> &'static str {
+        "PolynomialLR"
+    }
+}
+
+/// Cyclical learning rate policy with different modes
+#[derive(Clone, Debug)]
+pub struct CyclicalLR {
+    base_lr: f64,
+    max_lr: f64,
+    step_size: usize,
+    mode: CyclicalMode,
+    gamma: f64,
+    scale_mode: ScaleMode,
+    last_step: usize,
+}
+
+#[derive(Clone, Debug)]
+pub enum CyclicalMode {
+    Triangular,
+    Triangular2,
+    ExpRange,
+}
+
+#[derive(Clone, Debug)]
+pub enum ScaleMode {
+    Cycle,
+    Iterations,
+}
+
+impl CyclicalLR {
+    pub fn new(base_lr: f64, max_lr: f64, step_size: usize) -> Self {
+        CyclicalLR {
+            base_lr,
+            max_lr,
+            step_size,
+            mode: CyclicalMode::Triangular,
+            gamma: 1.0,
+            scale_mode: ScaleMode::Cycle,
+            last_step: 0,
+        }
+    }
+    
+    pub fn with_mode(mut self, mode: CyclicalMode) -> Self {
+        self.mode = mode;
+        self
+    }
+    
+    pub fn with_gamma(mut self, gamma: f64) -> Self {
+        self.gamma = gamma;
+        self
+    }
+    
+    pub fn with_scale_mode(mut self, scale_mode: ScaleMode) -> Self {
+        self.scale_mode = scale_mode;
+        self
+    }
+}
+
+impl LearningRateScheduler for CyclicalLR {
+    fn get_lr(&mut self, epoch: usize, _base_lr: f64) -> f64 {
+        self.last_step = epoch;
+        
+        let cycle = (epoch as f64 / (2.0 * self.step_size as f64)).floor() as usize;
+        let x = (epoch as f64 / self.step_size as f64 - 2.0 * cycle as f64 - 1.0).abs();
+        
+        let scale_factor = match self.mode {
+            CyclicalMode::Triangular => 1.0,
+            CyclicalMode::Triangular2 => 1.0 / (2.0_f64.powi(cycle as i32 - 1)),
+            CyclicalMode::ExpRange => self.gamma.powi(epoch as i32),
+        };
+        
+        let scale_factor = match self.scale_mode {
+            ScaleMode::Cycle => scale_factor,
+            ScaleMode::Iterations => self.gamma.powi(epoch as i32),
+        };
+        
+        self.base_lr + (self.max_lr - self.base_lr) * (1.0 - x).max(0.0) * scale_factor
+    }
+    
+    fn reset(&mut self) {
+        self.last_step = 0;
+    }
+    
+    fn name(&self) -> &'static str {
+        "CyclicalLR"
+    }
+}
+
+/// Warmup scheduler that gradually increases learning rate
+#[derive(Clone, Debug)]
+pub struct WarmupScheduler<S: LearningRateScheduler> {
+    warmup_epochs: usize,
+    base_scheduler: S,
+    warmup_start_lr: f64,
+}
+
+impl<S: LearningRateScheduler> WarmupScheduler<S> {
+    pub fn new(warmup_epochs: usize, base_scheduler: S, warmup_start_lr: f64) -> Self {
+        WarmupScheduler {
+            warmup_epochs,
+            base_scheduler,
+            warmup_start_lr,
+        }
+    }
+}
+
+impl<S: LearningRateScheduler> LearningRateScheduler for WarmupScheduler<S> {
+    fn get_lr(&mut self, epoch: usize, base_lr: f64) -> f64 {
+        if epoch < self.warmup_epochs {
+            // Linear warmup
+            let warmup_factor = epoch as f64 / self.warmup_epochs as f64;
+            self.warmup_start_lr + (base_lr - self.warmup_start_lr) * warmup_factor
+        } else {
+            // Use base scheduler after warmup
+            self.base_scheduler.get_lr(epoch - self.warmup_epochs, base_lr)
+        }
+    }
+    
+    fn reset(&mut self) {
+        self.base_scheduler.reset();
+    }
+    
+    fn name(&self) -> &'static str {
+        "WarmupScheduler"
+    }
+}
+
+/// Learning rate schedule visualization helper
+pub struct LRScheduleVisualizer;
+
+impl LRScheduleVisualizer {
+    /// Generate learning rate values for visualization
+    pub fn generate_schedule<S: LearningRateScheduler>(
+        mut scheduler: S,
+        base_lr: f64,
+        epochs: usize,
+    ) -> Vec<(usize, f64)> {
+        let mut schedule = Vec::new();
+        
+        for epoch in 0..epochs {
+            let lr = scheduler.get_lr(epoch, base_lr);
+            schedule.push((epoch, lr));
+        }
+        
+        schedule
+    }
+    
+    /// Print ASCII visualization of learning rate schedule
+    pub fn print_schedule<S: LearningRateScheduler>(
+        scheduler: S,
+        base_lr: f64,
+        epochs: usize,
+        width: usize,
+        height: usize,
+    ) {
+        let schedule = Self::generate_schedule(scheduler, base_lr, epochs);
+        
+        if schedule.is_empty() {
+            return;
+        }
+        
+        let min_lr = schedule.iter().map(|(_, lr)| *lr).fold(f64::INFINITY, f64::min);
+        let max_lr = schedule.iter().map(|(_, lr)| *lr).fold(0.0, f64::max);
+        
+        println!("Learning Rate Schedule Visualization ({}x{})", width, height);
+        println!("Min LR: {:.2e}, Max LR: {:.2e}", min_lr, max_lr);
+        println!("┌{}┐", "─".repeat(width));
+        
+        for row in 0..height {
+            let y_value = max_lr - (max_lr - min_lr) * row as f64 / (height - 1) as f64;
+            print!("│");
+            
+            for col in 0..width {
+                let epoch_idx = col * epochs / width;
+                let lr = if epoch_idx < schedule.len() {
+                    schedule[epoch_idx].1
+                } else {
+                    min_lr
+                };
+                
+                if (lr - y_value).abs() < (max_lr - min_lr) / height as f64 {
+                    print!("█");
+                } else {
+                    print!(" ");
+                }
+            }
+            
+            println!("│ {:.2e}", y_value);
+        }
+        
+        println!("└{}┘", "─".repeat(width));
+        print!(" ");
+        for i in 0..=4 {
+            let epoch = i * epochs / 4;
+            print!("{:>width$}", epoch, width = width / 5);
+        }
+        println!();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,8 +725,8 @@ mod tests {
         assert_eq!(lr2, base_lr);
         
         // Should reduce after patience epochs without improvement
-        let lr3 = scheduler.step(0.9, base_lr);
-        let lr4 = scheduler.step(0.9, base_lr);
+        let _lr3 = scheduler.step(0.9, base_lr);
+        let _lr4 = scheduler.step(0.9, base_lr);
         let lr5 = scheduler.step(0.9, base_lr);
         
         assert!(lr5 < base_lr);
@@ -510,5 +741,45 @@ mod tests {
         assert_eq!(scheduler.get_lr(0, base_lr), base_lr);
         assert!((scheduler.get_lr(5, base_lr) - base_lr * 0.55).abs() < 1e-10);
         assert!((scheduler.get_lr(10, base_lr) - base_lr * 0.1).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_polynomial_lr() {
+        let mut scheduler = PolynomialLR::new(100, 2.0, 0.01);
+        let base_lr = 0.1;
+        
+        assert_eq!(scheduler.get_lr(0, base_lr), 0.1);
+        // At epoch 50: factor = (1 - 50/100)^2 = 0.25
+        // lr = 0.01 + (0.1 - 0.01) * 0.25 = 0.01 + 0.0225 = 0.0325
+        assert!((scheduler.get_lr(50, base_lr) - 0.0325).abs() < 1e-10);
+        assert!((scheduler.get_lr(100, base_lr) - 0.01).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cyclical_lr() {
+        let mut scheduler = CyclicalLR::new(0.1, 1.0, 10);
+        let base_lr = 0.1;
+        
+        assert_eq!(scheduler.get_lr(0, base_lr), 0.1);
+        // At epoch 5: cycle=0, x=0.5, lr should be at peak 
+        // lr = 0.1 + (1.0 - 0.1) * (1 - 0.5) = 0.1 + 0.9 * 0.5 = 0.55
+        assert!((scheduler.get_lr(5, base_lr) - 0.55).abs() < 1e-10);
+        // At epoch 10: cycle=0, x=1.0, lr should be at max
+        // lr = 0.1 + (1.0 - 0.1) * (1 - 1.0) = 0.1 + 0.9 * 0.0 = 0.1
+        // But actually at epoch 10, we're at the peak (x=0): 0.1 + 0.9 * 1.0 = 1.0
+        assert_eq!(scheduler.get_lr(10, base_lr), 1.0);
+    }
+
+    #[test]
+    fn test_warmup_scheduler() {
+        let base_scheduler = ConstantLR;
+        let mut scheduler = WarmupScheduler::new(10, base_scheduler, 0.01);
+        let base_lr = 0.1;
+        
+        assert_eq!(scheduler.get_lr(0, base_lr), 0.01);
+        // At epoch 5: warmup_factor = 5/10 = 0.5
+        // lr = 0.01 + (0.1 - 0.01) * 0.5 = 0.01 + 0.045 = 0.055
+        assert!((scheduler.get_lr(5, base_lr) - 0.055).abs() < 1e-10);
+        assert_eq!(scheduler.get_lr(10, base_lr), 0.1);
     }
 } 

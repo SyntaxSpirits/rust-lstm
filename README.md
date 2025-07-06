@@ -35,9 +35,11 @@ graph TD
 
 - **LSTM, BiLSTM & GRU Networks** with multi-layer support
 - **Complete Training System** with backpropagation through time (BPTT)
-- **Multiple Optimizers**: SGD, Adam, RMSprop with learning rate scheduling
+- **Multiple Optimizers**: SGD, Adam, RMSprop with comprehensive learning rate scheduling
+- **Advanced Learning Rate Scheduling**: 12 different schedulers including OneCycle, Warmup, Cyclical, and Polynomial
 - **Loss Functions**: MSE, MAE, Cross-entropy with softmax
 - **Advanced Dropout**: Input, recurrent, output dropout, variational dropout, and zoneout
+- **Schedule Visualization**: ASCII visualization of learning rate schedules
 - **Model Persistence**: Save/load models in JSON or binary format
 - **Peephole LSTM variant** for enhanced performance
 
@@ -47,7 +49,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-lstm = "0.3.0"
+rust-lstm = "0.4.0"
 ```
 
 ### Basic Usage
@@ -185,17 +187,49 @@ graph LR
     style D2 fill:#fff3e0
 ```
 
-### Learning Rate Scheduling
+### Advanced Learning Rate Scheduling
+
+The library includes 12 different learning rate schedulers with visualization capabilities:
 
 ```rust
-use rust_lstm::{create_step_lr_trainer, create_one_cycle_trainer};
+use rust_lstm::{
+    create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer,
+    ScheduledOptimizer, PolynomialLR, CyclicalLR, WarmupScheduler,
+    LRScheduleVisualizer, Adam
+};
 
 // Step decay: reduce LR by 50% every 10 epochs
 let mut trainer = create_step_lr_trainer(network, 0.01, 10, 0.5);
 
 // OneCycle policy for modern deep learning
 let mut trainer = create_one_cycle_trainer(network, 0.1, 100);
+
+// Cosine annealing with warm restarts
+let mut trainer = create_cosine_annealing_trainer(network, 0.01, 20, 1e-6);
+
+// Advanced combinations - Warmup + Cyclical scheduling
+let base_scheduler = CyclicalLR::new(0.001, 0.01, 10);
+let warmup_scheduler = WarmupScheduler::new(5, base_scheduler, 0.0001);
+let optimizer = ScheduledOptimizer::new(Adam::new(0.01), warmup_scheduler, 0.01);
+
+// Polynomial decay with visualization
+let poly_scheduler = PolynomialLR::new(100, 2.0, 0.001);
+LRScheduleVisualizer::print_schedule(poly_scheduler, 0.01, 100, 60, 10);
 ```
+
+#### Available Schedulers:
+- **ConstantLR**: No scheduling (baseline)
+- **StepLR**: Step decay at regular intervals
+- **MultiStepLR**: Multi-step decay at specific milestones
+- **ExponentialLR**: Exponential decay each epoch
+- **CosineAnnealingLR**: Smooth cosine oscillation
+- **CosineAnnealingWarmRestarts**: Cosine with periodic restarts
+- **OneCycleLR**: One cycle policy for super-convergence
+- **ReduceLROnPlateau**: Adaptive reduction on validation plateaus
+- **LinearLR**: Linear interpolation between rates
+- **PolynomialLR** ✨: Polynomial decay with configurable power
+- **CyclicalLR** ✨: Triangular, triangular2, and exponential range modes
+- **WarmupScheduler** ✨: Gradual warmup wrapper for any base scheduler
 
 ## Architecture
 
@@ -223,7 +257,8 @@ cargo run --example bilstm_example           # Bidirectional LSTM
 cargo run --example dropout_example          # Comprehensive dropout demo
 
 # Learning and scheduling
-cargo run --example learning_rate_scheduling
+cargo run --example learning_rate_scheduling    # Basic schedulers
+cargo run --example advanced_lr_scheduling      # Advanced schedulers with visualization
 
 # Real-world applications
 cargo run --example stock_prediction
@@ -257,8 +292,12 @@ cargo run --example model_inspection
 ### Learning Rate Schedulers
 - **StepLR**: Decay by factor every N epochs
 - **OneCycleLR**: One cycle policy (warmup + annealing)
-- **CosineAnnealingLR**: Smooth cosine oscillation
+- **CosineAnnealingLR**: Smooth cosine oscillation with warm restarts
 - **ReduceLROnPlateau**: Reduce when validation loss plateaus
+- **PolynomialLR**: Polynomial decay with configurable power
+- **CyclicalLR**: Triangular oscillation with multiple modes
+- **WarmupScheduler**: Gradual increase wrapper for any scheduler
+- **LinearLR**: Linear interpolation between learning rates
 
 ## Testing
 
@@ -295,6 +334,7 @@ cargo run --example text_classification_bilstm  # Classification accuracy
 
 ## Version History
 
+- **v0.4.0**: Advanced learning rate scheduling with 12 different schedulers, warmup support, cyclical learning rates, polynomial decay, and ASCII visualization
 - **v0.3.0**: Bidirectional LSTM networks with flexible combine modes
 - **v0.2.0**: Complete training system with BPTT and comprehensive dropout
 - **v0.1.0**: Initial LSTM implementation with forward pass
