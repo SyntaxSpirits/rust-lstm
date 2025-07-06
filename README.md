@@ -77,8 +77,6 @@ fn main() {
 
 ```rust
 use rust_lstm::{LSTMNetwork, create_basic_trainer, TrainingConfig};
-use rust_lstm::optimizers::Adam;
-use rust_lstm::loss::MSELoss;
 
 fn main() {
     // Create network with dropout
@@ -86,18 +84,16 @@ fn main() {
         .with_input_dropout(0.2, true)
         .with_recurrent_dropout(0.3, true);
     
-    // Setup trainer
-    let mut trainer = create_basic_trainer(
-        network,
-        MSELoss,
-        Adam::new(0.001)
-    ).with_config(TrainingConfig {
-        epochs: 100,
-        clip_gradient: Some(1.0),
-        ..Default::default()
-    });
+    // Setup trainer (uses SGD optimizer and MSE loss by default)
+    let mut trainer = create_basic_trainer(network, 0.001)
+        .with_config(TrainingConfig {
+            epochs: 100,
+            clip_gradient: Some(1.0),
+            ..Default::default()
+        });
     
-    // Train (train_data is Vec<(input, target)>)
+    // Train (train_data is slice of (input_sequence, target_sequence) tuples)
+    // Each input_sequence and target_sequence is Vec<Array2<f64>>
     trainer.train(&train_data, Some(&validation_data));
 }
 ```
@@ -193,19 +189,22 @@ The library includes 12 different learning rate schedulers with visualization ca
 
 ```rust
 use rust_lstm::{
-    create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer,
+    LSTMNetwork, create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer,
     ScheduledOptimizer, PolynomialLR, CyclicalLR, WarmupScheduler,
     LRScheduleVisualizer, Adam
 };
+
+// Create a network
+let network = LSTMNetwork::new(1, 10, 2);
 
 // Step decay: reduce LR by 50% every 10 epochs
 let mut trainer = create_step_lr_trainer(network, 0.01, 10, 0.5);
 
 // OneCycle policy for modern deep learning
-let mut trainer = create_one_cycle_trainer(network, 0.1, 100);
+let mut trainer = create_one_cycle_trainer(network.clone(), 0.1, 100);
 
 // Cosine annealing with warm restarts
-let mut trainer = create_cosine_annealing_trainer(network, 0.01, 20, 1e-6);
+let mut trainer = create_cosine_annealing_trainer(network.clone(), 0.01, 20, 1e-6);
 
 // Advanced combinations - Warmup + Cyclical scheduling
 let base_scheduler = CyclicalLR::new(0.001, 0.01, 10);
@@ -254,7 +253,7 @@ cargo run --example time_series_prediction
 # Advanced architectures
 cargo run --example gru_example              # GRU vs LSTM comparison
 cargo run --example bilstm_example           # Bidirectional LSTM
-cargo run --example dropout_example          # Comprehensive dropout demo
+cargo run --example dropout_example          # Dropout demo
 
 # Learning and scheduling
 cargo run --example learning_rate_scheduling    # Basic schedulers
@@ -307,30 +306,30 @@ cargo test
 
 ## Performance Examples
 
-The library includes comprehensive examples that demonstrate its capabilities. Here are some suggested visualizations you can generate by running the examples:
+The library includes comprehensive examples that demonstrate its capabilities:
 
-### Training Curves
-Run the learning rate scheduling example to see different scheduler behaviors:
+### Training with Different Schedulers
+Run the learning rate scheduling examples to see different scheduler behaviors:
 ```bash
-cargo run --example learning_rate_scheduling
+cargo run --example learning_rate_scheduling    # Compare basic schedulers
+cargo run --example advanced_lr_scheduling      # Advanced schedulers with ASCII visualization
 ```
-> **Suggested visualization**: Learning rate curves and loss curves for different schedulers
 
 ### Architecture Comparison  
 Compare LSTM vs GRU performance:
 ```bash
 cargo run --example gru_example
 ```
-> **Suggested visualization**: Training time and accuracy comparison charts
 
 ### Real-world Applications
-Generate prediction plots from the examples:
+Test the library with practical examples:
 ```bash
 cargo run --example stock_prediction      # Stock price predictions
 cargo run --example weather_prediction    # Weather forecasting  
 cargo run --example text_classification_bilstm  # Classification accuracy
 ```
-> **Suggested visualization**: Prediction vs actual plots, confusion matrices, and accuracy metrics
+
+The examples output training metrics, loss values, and predictions that you can analyze or plot with external tools.
 
 ## Version History
 
