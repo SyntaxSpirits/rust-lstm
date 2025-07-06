@@ -1,6 +1,6 @@
 [package]
 name = "rust-lstm"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
 rust-version = "1.70"
@@ -64,6 +64,10 @@ path = "examples/text_classification_bilstm.rs"
 [[example]]
 name = "learning_rate_scheduling"
 path = "examples/learning_rate_scheduling.rs"
+
+[[example]]
+name = "advanced_lr_scheduling"
+path = "examples/advanced_lr_scheduling.rs"
 
 [[example]]
 name = "gru_example"

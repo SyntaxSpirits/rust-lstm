@@ -273,6 +273,31 @@ impl<O: Optimizer> ScheduledOptimizer<O, crate::schedulers::CosineAnnealingLR> {
     }
 }
 
+impl<O: Optimizer> ScheduledOptimizer<O, crate::schedulers::PolynomialLR> {
+    pub fn polynomial(optimizer: O, lr: f64, total_iters: usize, power: f64, end_lr: f64) -> Self {
+        Self::new(optimizer, crate::schedulers::PolynomialLR::new(total_iters, power, end_lr), lr)
+    }
+}
+
+impl<O: Optimizer> ScheduledOptimizer<O, crate::schedulers::CyclicalLR> {
+    pub fn cyclical(optimizer: O, base_lr: f64, max_lr: f64, step_size: usize) -> Self {
+        Self::new(optimizer, crate::schedulers::CyclicalLR::new(base_lr, max_lr, step_size), base_lr)
+    }
+    
+    pub fn cyclical_triangular2(optimizer: O, base_lr: f64, max_lr: f64, step_size: usize) -> Self {
+        let scheduler = crate::schedulers::CyclicalLR::new(base_lr, max_lr, step_size)
+            .with_mode(crate::schedulers::CyclicalMode::Triangular2);
+        Self::new(optimizer, scheduler, base_lr)
+    }
+    
+    pub fn cyclical_exp_range(optimizer: O, base_lr: f64, max_lr: f64, step_size: usize, gamma: f64) -> Self {
+        let scheduler = crate::schedulers::CyclicalLR::new(base_lr, max_lr, step_size)
+            .with_mode(crate::schedulers::CyclicalMode::ExpRange)
+            .with_gamma(gamma);
+        Self::new(optimizer, scheduler, base_lr)
+    }
+}
+
 impl<O: Optimizer> ScheduledOptimizer<O, crate::schedulers::OneCycleLR> {
     pub fn one_cycle(optimizer: O, max_lr: f64, total_steps: usize) -> Self {
         Self::new(optimizer, crate::schedulers::OneCycleLR::new(max_lr, total_steps), max_lr)
