@@ -49,7 +49,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-lstm = "0.4.0"
+rust-lstm = "0.5.0"
 ```
 
 ### Basic Usage

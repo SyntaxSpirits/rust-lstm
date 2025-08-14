@@ -1,11 +1,18 @@
 use ndarray::Array2;
-use crate::layers::lstm_cell::{LSTMCell, LSTMCellGradients, LSTMCellCache};
+use crate::layers::lstm_cell::{LSTMCell, LSTMCellGradients, LSTMCellCache, LSTMCellBatchCache};
 use crate::optimizers::Optimizer;
 
 /// Holds cached values for all layers during network forward pass
 #[derive(Clone)]
 pub struct LSTMNetworkCache {
     pub cell_caches: Vec<LSTMCellCache>,
+}
+
+/// Holds cached values for batch processing during network forward pass
+#[derive(Clone)]
+pub struct LSTMNetworkBatchCache {
+    pub cell_caches: Vec<LSTMCellBatchCache>,
+    pub batch_size: usize,
 }
 
 /// Multi-layer LSTM network for sequence modeling with dropout support
@@ -226,6 +233,152 @@ impl LSTMNetwork {
         }
 
         (outputs, caches)
+    }
+
+    /// Process multiple sequences in a batch
+    /// 
+    /// # Arguments
+    /// * `batch_sequences` - Vector of sequences, each sequence is a Vec<Array2<f64>>
+    ///   where each Array2 has shape (input_size, 1) for single sequences
+    /// 
+    /// # Returns
+    /// * Vector of sequence outputs, where each sequence output is Vec<(Array2<f64>, Array2<f64>)>
+    pub fn forward_batch_sequences(&mut self, batch_sequences: &[Vec<Array2<f64>>]) -> Vec<Vec<(Array2<f64>, Array2<f64>)>> {
+        // Find the maximum sequence length for padding
+        let max_seq_len = batch_sequences.iter().map(|seq| seq.len()).max().unwrap_or(0);
+        let batch_size = batch_sequences.len();
+        
+        if batch_size == 0 || max_seq_len == 0 {
+            return Vec::new();
+        }
+
+        let mut batch_outputs = vec![Vec::new(); batch_size];
+        
+        // Initialize batch hidden and cell states
+        let mut batch_hx = Array2::zeros((self.hidden_size, batch_size));
+        let mut batch_cx = Array2::zeros((self.hidden_size, batch_size));
+
+        // Process each time step across all sequences in the batch
+        for t in 0..max_seq_len {
+            // Prepare batch input for current time step
+            let mut batch_input = Array2::zeros((self.input_size, batch_size));
+            let mut active_sequences = Vec::new();
+            
+            for (batch_idx, sequence) in batch_sequences.iter().enumerate() {
+                if t < sequence.len() {
+                    // Copy input for this sequence at time step t
+                    batch_input.column_mut(batch_idx).assign(&sequence[t].column(0));
+                    active_sequences.push(batch_idx);
+                }
+            }
+
+            if active_sequences.is_empty() {
+                break; // No more active sequences
+            }
+
+            // Forward pass for this time step across the batch
+            let (new_batch_hx, new_batch_cx) = self.forward_batch(&batch_input, &batch_hx, &batch_cx);
+            
+            // Update states and collect outputs for active sequences
+            batch_hx = new_batch_hx.clone();
+            batch_cx = new_batch_cx.clone();
+
+            // Store outputs for each active sequence
+            for &batch_idx in &active_sequences {
+                let hy = new_batch_hx.column(batch_idx).to_owned().insert_axis(ndarray::Axis(1));
+                let cy = new_batch_cx.column(batch_idx).to_owned().insert_axis(ndarray::Axis(1));
+                batch_outputs[batch_idx].push((hy, cy));
+            }
+        }
+
+        batch_outputs
+    }
+
+    /// Batch forward pass for single time step across multiple sequences
+    /// 
+    /// # Arguments
+    /// * `batch_input` - Input tensor of shape (input_size, batch_size)
+    /// * `batch_hx` - Hidden states tensor of shape (hidden_size, batch_size)  
+    /// * `batch_cx` - Cell states tensor of shape (hidden_size, batch_size)
+    /// 
+    /// # Returns
+    /// * Tuple of (new_hidden_states, new_cell_states) with same batch dimensions
+    pub fn forward_batch(&mut self, batch_input: &Array2<f64>, batch_hx: &Array2<f64>, batch_cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>) {
+        let mut current_input = batch_input.clone();
+        let mut current_hx = batch_hx.clone();
+        let mut current_cx = batch_cx.clone();
+
+        // Process through each layer
+        for cell in &mut self.cells {
+            let (new_hx, new_cx) = cell.forward_batch(&current_input, &current_hx, &current_cx);
+            current_input = new_hx.clone(); // Output of layer i becomes input to layer i+1
+            current_hx = new_hx;
+            current_cx = new_cx;
+        }
+
+        (current_hx, current_cx)
+    }
+
+    /// Batch forward pass with caching for training
+    /// 
+    /// Similar to forward_batch but caches intermediate values needed for backpropagation
+    pub fn forward_batch_with_cache(&mut self, batch_input: &Array2<f64>, batch_hx: &Array2<f64>, batch_cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>, LSTMNetworkBatchCache) {
+        let mut current_input = batch_input.clone();
+        let mut current_hx = batch_hx.clone();
+        let mut current_cx = batch_cx.clone();
+        let mut cell_caches = Vec::new();
+
+        // Process through each layer with caching
+        for cell in &mut self.cells {
+            let (new_hx, new_cx, cache) = cell.forward_batch_with_cache(&current_input, &current_hx, &current_cx);
+            cell_caches.push(cache);
+
+            current_input = new_hx.clone();
+            current_hx = new_hx;
+            current_cx = new_cx;
+        }
+
+        let network_cache = LSTMNetworkBatchCache { 
+            cell_caches,
+            batch_size: batch_input.ncols(),
+        };
+        
+        (current_hx, current_cx, network_cache)
+    }
+
+    /// Batch backward pass for training
+    /// 
+    /// Computes gradients for an entire batch simultaneously
+    pub fn backward_batch(&self, dhy: &Array2<f64>, dcy: &Array2<f64>, cache: &LSTMNetworkBatchCache) -> (Vec<LSTMCellGradients>, Array2<f64>) {
+        let mut gradients = Vec::new();
+        let mut current_dhy = dhy.clone();
+        let mut current_dcy = dcy.clone();
+
+        // Backward through layers in reverse order
+        for (i, cell) in self.cells.iter().enumerate().rev() {
+            let cell_cache = &cache.cell_caches[i];
+            let (cell_gradients, dx, _dhx_prev, dcx_prev) = cell.backward_batch(&current_dhy, &current_dcy, cell_cache);
+            
+            gradients.push(cell_gradients);
+
+            if i > 0 {
+                current_dhy = dx;
+                current_dcy = dcx_prev;
+            }
+        }
+
+        gradients.reverse();
+        
+        let dx_input = if !gradients.is_empty() {
+            let first_cell = &self.cells[0];
+            let first_cache = &cache.cell_caches[0];
+            let (_, dx_input, _, _) = first_cell.backward_batch(dhy, dcy, first_cache);
+            dx_input
+        } else {
+            Array2::<f64>::zeros(dhy.raw_dim())
+        };
+
+        (gradients, dx_input)
     }
 }
 

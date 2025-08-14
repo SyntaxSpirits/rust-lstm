@@ -439,6 +439,312 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
     }
 }
 
+/// Batch trainer for LSTM networks with configurable loss and optimizer
+/// Processes multiple sequences simultaneously for improved performance
+pub struct LSTMBatchTrainer<L: LossFunction, O: Optimizer> {
+    pub network: LSTMNetwork,
+    pub loss_function: L,
+    pub optimizer: O,
+    pub config: TrainingConfig,
+    pub metrics_history: Vec<TrainingMetrics>,
+}
+
+impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
+    pub fn new(network: LSTMNetwork, loss_function: L, optimizer: O) -> Self {
+        LSTMBatchTrainer {
+            network,
+            loss_function,
+            optimizer,
+            config: TrainingConfig::default(),
+            metrics_history: Vec::new(),
+        }
+    }
+
+    pub fn with_config(mut self, config: TrainingConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Train on a batch of sequences using batch processing
+    /// 
+    /// # Arguments
+    /// * `batch_inputs` - Vector of input sequences, each sequence is Vec<Array2<f64>>
+    /// * `batch_targets` - Vector of target sequences, each sequence is Vec<Array2<f64>>
+    /// 
+    /// # Returns
+    /// * Average loss across the batch
+    pub fn train_batch(&mut self, batch_inputs: &[Vec<Array2<f64>>], batch_targets: &[Vec<Array2<f64>>]) -> f64 {
+        assert_eq!(batch_inputs.len(), batch_targets.len(), "Batch inputs and targets must have same length");
+        
+        if batch_inputs.is_empty() {
+            return 0.0;
+        }
+
+        self.network.train();
+
+        // Find maximum sequence length for padding
+        let max_seq_len = batch_inputs.iter().map(|seq| seq.len()).max().unwrap_or(0);
+        let batch_size = batch_inputs.len();
+
+        let mut total_loss = 0.0;
+        let mut total_gradients = self.network.zero_gradients();
+        let mut valid_steps = 0;
+
+        // Initialize batch states
+        let mut batch_hx = Array2::zeros((self.network.hidden_size, batch_size));
+        let mut batch_cx = Array2::zeros((self.network.hidden_size, batch_size));
+
+        // Process each time step
+        for t in 0..max_seq_len {
+            // Prepare batch input and targets for current time step
+            let mut batch_input = Array2::zeros((self.network.input_size, batch_size));
+            let mut batch_target = Array2::zeros((self.network.hidden_size, batch_size));
+            let mut active_sequences = Vec::new();
+
+            // Collect active sequences for this time step
+            for (batch_idx, (input_seq, target_seq)) in batch_inputs.iter().zip(batch_targets.iter()).enumerate() {
+                if t < input_seq.len() && t < target_seq.len() {
+                    batch_input.column_mut(batch_idx).assign(&input_seq[t].column(0));
+                    batch_target.column_mut(batch_idx).assign(&target_seq[t].column(0));
+                    active_sequences.push(batch_idx);
+                }
+            }
+
+            if active_sequences.is_empty() {
+                break;
+            }
+
+            // Forward pass with caching for active sequences
+            let (new_batch_hx, new_batch_cx, cache) = self.network.forward_batch_with_cache(&batch_input, &batch_hx, &batch_cx);
+
+            // Compute loss only for active sequences
+            let active_predictions = if active_sequences.len() == batch_size {
+                new_batch_hx.clone()
+            } else {
+                let mut active_preds = Array2::zeros((self.network.hidden_size, active_sequences.len()));
+                for (idx, &batch_idx) in active_sequences.iter().enumerate() {
+                    active_preds.column_mut(idx).assign(&new_batch_hx.column(batch_idx));
+                }
+                active_preds
+            };
+
+            let active_targets = if active_sequences.len() == batch_size {
+                batch_target.clone()
+            } else {
+                let mut active_targs = Array2::zeros((self.network.hidden_size, active_sequences.len()));
+                for (idx, &batch_idx) in active_sequences.iter().enumerate() {
+                    active_targs.column_mut(idx).assign(&batch_target.column(batch_idx));
+                }
+                active_targs
+            };
+
+            let step_loss = self.loss_function.compute_batch_loss(&active_predictions, &active_targets);
+            total_loss += step_loss;
+            valid_steps += 1;
+
+            // Compute gradients
+            let dhy = self.loss_function.compute_batch_gradient(&active_predictions, &active_targets);
+            let _dcy = Array2::<f64>::zeros(dhy.raw_dim());
+
+            // Expand gradients back to full batch size if needed
+            let full_dhy = if active_sequences.len() == batch_size {
+                dhy
+            } else {
+                let mut full_grad = Array2::zeros((self.network.hidden_size, batch_size));
+                for (idx, &batch_idx) in active_sequences.iter().enumerate() {
+                    full_grad.column_mut(batch_idx).assign(&dhy.column(idx));
+                }
+                full_grad
+            };
+
+            let full_dcy = Array2::<f64>::zeros(full_dhy.raw_dim());
+
+            // Backward pass
+            let (step_gradients, _) = self.network.backward_batch(&full_dhy, &full_dcy, &cache);
+
+            // Accumulate gradients
+            for (total_grad, step_grad) in total_gradients.iter_mut().zip(step_gradients.iter()) {
+                total_grad.w_ih = &total_grad.w_ih + &step_grad.w_ih;
+                total_grad.w_hh = &total_grad.w_hh + &step_grad.w_hh;
+                total_grad.b_ih = &total_grad.b_ih + &step_grad.b_ih;
+                total_grad.b_hh = &total_grad.b_hh + &step_grad.b_hh;
+            }
+
+            // Update states
+            batch_hx = new_batch_hx;
+            batch_cx = new_batch_cx;
+        }
+
+        // Apply gradient clipping
+        if let Some(clip_value) = self.config.clip_gradient {
+            self.clip_gradients(&mut total_gradients, clip_value);
+        }
+
+        // Update parameters
+        self.network.update_parameters(&total_gradients, &mut self.optimizer);
+
+        if valid_steps > 0 {
+            total_loss / valid_steps as f64
+        } else {
+            0.0
+        }
+    }
+
+    /// Train for multiple epochs with batch processing
+    /// 
+    /// # Arguments
+    /// * `train_data` - Vector of (input_sequences, target_sequences) tuples for training
+    /// * `validation_data` - Optional validation data
+    /// * `batch_size` - Number of sequences to process in each batch
+    pub fn train(&mut self, 
+                 train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
+                 validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>,
+                 batch_size: usize) {
+        
+        println!("Starting batch training for {} epochs with batch size {}...", 
+                 self.config.epochs, batch_size);
+        
+        for epoch in 0..self.config.epochs {
+            let start_time = Instant::now();
+            let mut epoch_loss = 0.0;
+            let mut num_batches = 0;
+
+            // Create batches
+            for batch_start in (0..train_data.len()).step_by(batch_size) {
+                let batch_end = (batch_start + batch_size).min(train_data.len());
+                let batch = &train_data[batch_start..batch_end];
+                
+                let batch_inputs: Vec<_> = batch.iter().map(|(inputs, _)| inputs.clone()).collect();
+                let batch_targets: Vec<_> = batch.iter().map(|(_, targets)| targets.clone()).collect();
+                
+                let batch_loss = self.train_batch(&batch_inputs, &batch_targets);
+                epoch_loss += batch_loss;
+                num_batches += 1;
+            }
+
+            epoch_loss /= num_batches as f64;
+
+            // Validation
+            let validation_loss = if let Some(val_data) = validation_data {
+                self.network.eval();
+                Some(self.evaluate_batch(val_data, batch_size))
+            } else {
+                None
+            };
+
+            let time_elapsed = start_time.elapsed().as_secs_f64();
+            let current_lr = self.optimizer.get_learning_rate();
+
+            let metrics = TrainingMetrics {
+                epoch,
+                train_loss: epoch_loss,
+                validation_loss,
+                time_elapsed,
+                learning_rate: current_lr,
+            };
+
+            self.metrics_history.push(metrics.clone());
+
+            if epoch % self.config.print_every == 0 {
+                if let Some(val_loss) = validation_loss {
+                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}", 
+                             epoch, epoch_loss, val_loss, current_lr, time_elapsed, num_batches);
+                } else {
+                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}", 
+                             epoch, epoch_loss, current_lr, time_elapsed, num_batches);
+                }
+            }
+        }
+
+        println!("Batch training completed!");
+    }
+
+    /// Evaluate model performance using batch processing
+    pub fn evaluate_batch(&mut self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], batch_size: usize) -> f64 {
+        self.network.eval();
+        
+        let mut total_loss = 0.0;
+        let mut num_batches = 0;
+
+        for batch_start in (0..data.len()).step_by(batch_size) {
+            let batch_end = (batch_start + batch_size).min(data.len());
+            let batch = &data[batch_start..batch_end];
+            
+            let batch_inputs: Vec<_> = batch.iter().map(|(inputs, _)| inputs.clone()).collect();
+            let batch_targets: Vec<_> = batch.iter().map(|(_, targets)| targets.clone()).collect();
+            
+            // Process batch and compute loss (simplified evaluation)
+            let batch_outputs = self.network.forward_batch_sequences(&batch_inputs);
+            
+            let mut batch_loss = 0.0;
+            let mut valid_samples = 0;
+            
+            for (outputs, targets) in batch_outputs.iter().zip(batch_targets.iter()) {
+                for ((output, _), target) in outputs.iter().zip(targets.iter()) {
+                    let loss = self.loss_function.compute_loss(output, target);
+                    batch_loss += loss;
+                    valid_samples += 1;
+                }
+            }
+            
+            if valid_samples > 0 {
+                total_loss += batch_loss / valid_samples as f64;
+                num_batches += 1;
+            }
+        }
+
+        if num_batches > 0 {
+            total_loss / num_batches as f64
+        } else {
+            0.0
+        }
+    }
+
+    /// Generate predictions using batch processing
+    pub fn predict_batch(&mut self, inputs: &[Vec<Array2<f64>>]) -> Vec<Vec<Array2<f64>>> {
+        self.network.eval();
+        
+        let batch_outputs = self.network.forward_batch_sequences(inputs);
+        batch_outputs.into_iter()
+            .map(|sequence_outputs| sequence_outputs.into_iter().map(|(output, _)| output).collect())
+            .collect()
+    }
+
+    /// Clip gradients by global norm to prevent exploding gradients
+    fn clip_gradients(&self, gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients], max_norm: f64) {
+        for gradient in gradients.iter_mut() {
+            self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
+            self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
+            self.clip_gradient_matrix(&mut gradient.b_ih, max_norm);
+            self.clip_gradient_matrix(&mut gradient.b_hh, max_norm);
+        }
+    }
+
+    fn clip_gradient_matrix(&self, matrix: &mut Array2<f64>, max_norm: f64) {
+        let norm = (&*matrix * &*matrix).sum().sqrt();
+        if norm > max_norm {
+            let scale = max_norm / norm;
+            *matrix = matrix.map(|x| x * scale);
+        }
+    }
+
+    pub fn get_latest_metrics(&self) -> Option<&TrainingMetrics> {
+        self.metrics_history.last()
+    }
+
+    pub fn get_metrics_history(&self) -> &[TrainingMetrics] {
+        &self.metrics_history
+    }
+
+    pub fn set_training_mode(&mut self, training: bool) {
+        if training {
+            self.network.train();
+        } else {
+            self.network.eval();
+        }
+    }
+}
+
 /// Create a basic trainer with SGD optimizer and MSE loss
 pub fn create_basic_trainer(network: LSTMNetwork, learning_rate: f64) -> LSTMTrainer<MSELoss, SGD> {
     let loss_function = MSELoss;
@@ -481,13 +787,25 @@ pub fn create_cosine_annealing_trainer(
     eta_min: f64
 ) -> ScheduledLSTMTrainer<MSELoss, crate::optimizers::Adam, crate::schedulers::CosineAnnealingLR> {
     let loss_function = MSELoss;
-    let optimizer = ScheduledOptimizer::cosine_annealing(
-        crate::optimizers::Adam::new(learning_rate),
-        learning_rate,
-        t_max,
-        eta_min
-    );
-    ScheduledLSTMTrainer::new(network, loss_function, optimizer)
+    let optimizer = crate::optimizers::Adam::new(learning_rate);
+    let scheduler = crate::schedulers::CosineAnnealingLR::new(t_max, eta_min);
+    let scheduled_optimizer = crate::optimizers::ScheduledOptimizer::new(optimizer, scheduler, learning_rate);
+    
+    ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
+}
+
+/// Create a basic batch trainer with SGD optimizer and MSE loss
+pub fn create_basic_batch_trainer(network: LSTMNetwork, learning_rate: f64) -> LSTMBatchTrainer<MSELoss, SGD> {
+    let loss_function = MSELoss;
+    let optimizer = SGD::new(learning_rate);
+    LSTMBatchTrainer::new(network, loss_function, optimizer)
+}
+
+/// Create a batch trainer with Adam optimizer and MSE loss
+pub fn create_adam_batch_trainer(network: LSTMNetwork, learning_rate: f64) -> LSTMBatchTrainer<MSELoss, crate::optimizers::Adam> {
+    let loss_function = MSELoss;
+    let optimizer = crate::optimizers::Adam::new(learning_rate);
+    LSTMBatchTrainer::new(network, loss_function, optimizer)
 }
 
 #[cfg(test)]
