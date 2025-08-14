@@ -1,6 +1,6 @@
 [package]
 name = "rust-lstm"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
 rust-version = "1.70"
@@ -84,3 +84,7 @@ path = "examples/time_series_prediction.rs"
 [[example]]
 name = "multi_layer_lstm"
 path = "examples/multi_layer_lstm.rs"
+
+[[example]]
+name = "batch_processing_example"
+path = "examples/batch_processing_example.rs"

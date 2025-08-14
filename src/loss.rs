@@ -7,6 +7,37 @@ pub trait LossFunction {
     
     /// Compute the gradient of the loss with respect to predictions
     fn compute_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64>;
+
+    /// Compute batch loss for multiple predictions and targets
+    /// Default implementation computes average loss across batch
+    fn compute_batch_loss(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> f64 {
+        let batch_size = predictions.ncols();
+        let mut total_loss = 0.0;
+
+        for i in 0..batch_size {
+            let pred_col = predictions.column(i).to_owned().insert_axis(ndarray::Axis(1));
+            let target_col = targets.column(i).to_owned().insert_axis(ndarray::Axis(1));
+            total_loss += self.compute_loss(&pred_col, &target_col);
+        }
+
+        total_loss / batch_size as f64
+    }
+
+    /// Compute batch gradients for multiple predictions and targets
+    /// Default implementation computes gradients for each sample and concatenates
+    fn compute_batch_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64> {
+        let batch_size = predictions.ncols();
+        let mut batch_gradients = Array2::zeros(predictions.raw_dim());
+
+        for i in 0..batch_size {
+            let pred_col = predictions.column(i).to_owned().insert_axis(ndarray::Axis(1));
+            let target_col = targets.column(i).to_owned().insert_axis(ndarray::Axis(1));
+            let grad = self.compute_gradient(&pred_col, &target_col);
+            batch_gradients.column_mut(i).assign(&grad.column(0));
+        }
+
+        batch_gradients
+    }
 }
 
 /// Mean Squared Error loss function
@@ -23,6 +54,17 @@ impl LossFunction for MSELoss {
         let diff = predictions - targets;
         2.0 * diff / (predictions.len() as f64)
     }
+
+    fn compute_batch_loss(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> f64 {
+        let diff = predictions - targets;
+        let squared_diff = &diff * &diff;
+        squared_diff.sum() / (predictions.len() as f64)
+    }
+
+    fn compute_batch_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64> {
+        let diff = predictions - targets;
+        2.0 * diff / (predictions.len() as f64)
+    }
 }
 
 /// Mean Absolute Error loss function
@@ -35,6 +77,16 @@ impl LossFunction for MAELoss {
     }
     
     fn compute_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64> {
+        let diff = predictions - targets;
+        diff.map(|x| if *x > 0.0 { 1.0 } else if *x < 0.0 { -1.0 } else { 0.0 }) / (predictions.len() as f64)
+    }
+
+    fn compute_batch_loss(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> f64 {
+        let diff = predictions - targets;
+        diff.map(|x| x.abs()).sum() / (predictions.len() as f64)
+    }
+
+    fn compute_batch_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64> {
         let diff = predictions - targets;
         diff.map(|x| if *x > 0.0 { 1.0 } else if *x < 0.0 { -1.0 } else { 0.0 }) / (predictions.len() as f64)
     }

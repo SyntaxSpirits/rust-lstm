@@ -43,16 +43,17 @@ pub mod training;
 pub mod persistence;
 
 // Re-export commonly used items
-pub use models::lstm_network::{LSTMNetwork, LayerDropoutConfig};
+pub use models::lstm_network::{LSTMNetwork, LSTMNetworkCache, LSTMNetworkBatchCache, LayerDropoutConfig};
 pub use models::gru_network::{GRUNetwork, LayerDropoutConfig as GRULayerDropoutConfig, GRUNetworkCache};
-pub use layers::lstm_cell::LSTMCell;
+pub use layers::lstm_cell::{LSTMCell, LSTMCellCache, LSTMCellBatchCache, LSTMCellGradients};
 pub use layers::peephole_lstm_cell::PeepholeLSTMCell;
 pub use layers::gru_cell::{GRUCell, GRUCellGradients, GRUCellCache};
 pub use layers::bilstm_network::{BiLSTMNetwork, CombineMode, BiLSTMNetworkCache};
 pub use layers::dropout::{Dropout, Zoneout};
 pub use training::{
-    LSTMTrainer, ScheduledLSTMTrainer, TrainingConfig, 
-    create_basic_trainer, create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer
+    LSTMTrainer, ScheduledLSTMTrainer, LSTMBatchTrainer, TrainingConfig, TrainingMetrics,
+    create_basic_trainer, create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer,
+    create_basic_batch_trainer, create_adam_batch_trainer
 };
 pub use optimizers::{SGD, Adam, RMSprop, ScheduledOptimizer};
 pub use schedulers::{
