@@ -71,6 +71,7 @@ fn one_cycle_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 10,
         clip_gradient: Some(1.0),
         log_lr_changes: false, // Too many changes for OneCycle
+        early_stopping: None,
     };
     
     let mut trainer = create_one_cycle_trainer(network, 0.1, 50)
@@ -94,6 +95,7 @@ fn cosine_annealing_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 8,
         clip_gradient: Some(1.0),
         log_lr_changes: false,
+        early_stopping: None,
     };
     
     let mut trainer = create_cosine_annealing_trainer(network, 0.01, 20, 1e-6)
@@ -202,6 +204,7 @@ fn scheduler_comparison(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
             print_every: 20, // Only print final result
             clip_gradient: Some(1.0),
             log_lr_changes: false,
+            early_stopping: None,
         };
         
         let final_loss = match scheduler_type {

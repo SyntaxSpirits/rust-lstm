@@ -50,6 +50,7 @@ fn polynomial_decay_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: true,
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
@@ -83,6 +84,7 @@ fn cyclical_lr_examples(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: false, // Too frequent for cyclical
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
@@ -108,6 +110,7 @@ fn cyclical_lr_examples(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: false,
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
@@ -134,6 +137,7 @@ fn cyclical_lr_examples(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: false,
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
@@ -172,6 +176,7 @@ fn warmup_scheduler_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 3,
         clip_gradient: Some(1.0),
         log_lr_changes: true,
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
@@ -236,6 +241,7 @@ fn advanced_training_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]
         print_every: 5,
         clip_gradient: Some(1.0),  // Gradient clipping
         log_lr_changes: false,     // Too frequent for cyclical
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
