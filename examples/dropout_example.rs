@@ -194,6 +194,7 @@ fn demonstrate_training_with_dropout() {
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: false,
+        early_stopping: None,
     };
     trainer = trainer.with_config(config);
 

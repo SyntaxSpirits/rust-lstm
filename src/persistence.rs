@@ -8,7 +8,7 @@ use crate::models::lstm_network::LSTMNetwork;
 use crate::layers::lstm_cell::LSTMCell;
 
 /// Serializable version of Array2<f64> for persistence
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct SerializableArray2 {
     data: Vec<f64>,
     shape: (usize, usize),
@@ -31,7 +31,7 @@ impl Into<Array2<f64>> for SerializableArray2 {
 }
 
 /// Serializable LSTM cell parameters
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SerializableLSTMCell {
     w_ih: SerializableArray2,
     w_hh: SerializableArray2,
@@ -70,7 +70,7 @@ impl Into<LSTMCell> for SerializableLSTMCell {
 }
 
 /// Serializable LSTM network
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SerializableLSTMNetwork {
     cells: Vec<SerializableLSTMCell>,
     input_size: usize,

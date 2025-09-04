@@ -52,6 +52,7 @@ pub use layers::bilstm_network::{BiLSTMNetwork, CombineMode, BiLSTMNetworkCache}
 pub use layers::dropout::{Dropout, Zoneout};
 pub use training::{
     LSTMTrainer, ScheduledLSTMTrainer, LSTMBatchTrainer, TrainingConfig, TrainingMetrics,
+    EarlyStoppingConfig, EarlyStoppingMetric, EarlyStopper,
     create_basic_trainer, create_step_lr_trainer, create_one_cycle_trainer, create_cosine_annealing_trainer,
     create_basic_batch_trainer, create_adam_batch_trainer
 };

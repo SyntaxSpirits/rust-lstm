@@ -88,3 +88,7 @@ path = "examples/multi_layer_lstm.rs"
 [[example]]
 name = "batch_processing_example"
 path = "examples/batch_processing_example.rs"
+
+[[example]]
+name = "early_stopping_example"
+path = "examples/early_stopping_example.rs"

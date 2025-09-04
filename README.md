@@ -37,8 +37,10 @@ graph TD
 - **Complete Training System** with backpropagation through time (BPTT)
 - **Multiple Optimizers**: SGD, Adam, RMSprop with comprehensive learning rate scheduling
 - **Advanced Learning Rate Scheduling**: 12 different schedulers including OneCycle, Warmup, Cyclical, and Polynomial
+- **Early Stopping**: Prevent overfitting with configurable patience and metric monitoring
 - **Loss Functions**: MSE, MAE, Cross-entropy with softmax
 - **Advanced Dropout**: Input, recurrent, output dropout, variational dropout, and zoneout
+- **Batch Processing**: 4-5x training speedup with efficient batch operations
 - **Schedule Visualization**: ASCII visualization of learning rate schedules
 - **Model Persistence**: Save/load models in JSON or binary format
 - **Peephole LSTM variant** for enhanced performance
@@ -94,6 +96,39 @@ fn main() {
     
     // Train (train_data is slice of (input_sequence, target_sequence) tuples)
     // Each input_sequence and target_sequence is Vec<Array2<f64>>
+    trainer.train(&train_data, Some(&validation_data));
+}
+```
+
+### Early Stopping
+
+```rust
+use rust_lstm::{
+    LSTMNetwork, create_basic_trainer, TrainingConfig, 
+    EarlyStoppingConfig, EarlyStoppingMetric
+};
+
+fn main() {
+    let network = LSTMNetwork::new(1, 10, 2);
+    
+    // Configure early stopping
+    let early_stopping = EarlyStoppingConfig {
+        patience: 10,           // Stop after 10 epochs with no improvement
+        min_delta: 1e-4,        // Minimum improvement threshold
+        restore_best_weights: true,  // Restore best weights when stopping
+        monitor: EarlyStoppingMetric::ValidationLoss,  // Monitor validation loss
+    };
+    
+    let config = TrainingConfig {
+        epochs: 1000,  // Will likely stop early
+        early_stopping: Some(early_stopping),
+        ..Default::default()
+    };
+    
+    let mut trainer = create_basic_trainer(network, 0.001)
+        .with_config(config);
+    
+    // Training will stop early if validation loss stops improving
     trainer.train(&train_data, Some(&validation_data));
 }
 ```
@@ -258,6 +293,10 @@ cargo run --example dropout_example          # Dropout demo
 # Learning and scheduling
 cargo run --example learning_rate_scheduling    # Basic schedulers
 cargo run --example advanced_lr_scheduling      # Advanced schedulers with visualization
+cargo run --example early_stopping_example      # Early stopping demonstration
+
+# Performance and batch processing
+cargo run --example batch_processing_example    # Batch processing with performance benchmarks
 
 # Real-world applications
 cargo run --example stock_prediction

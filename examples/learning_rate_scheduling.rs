@@ -7,7 +7,7 @@ use rust_lstm::{
 };
 
 fn main() {
-    println!("🚀 Learning Rate Scheduling Examples for Rust-LSTM");
+    println!("Learning Rate Scheduling Examples for Rust-LSTM");
     println!("==================================================\n");
 
     // Generate sample training data (sine wave prediction)
@@ -35,8 +35,8 @@ fn main() {
 
 fn step_lr_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
                    val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) {
-    println!("1️⃣  Step Learning Rate Decay Example");
-    println!("   Reduces LR by factor of 0.5 every 10 epochs\n");
+    println!("Step Learning Rate Decay Example");
+    println!("Reduces LR by factor of 0.5 every 10 epochs\n");
     
     let network = LSTMNetwork::new(1, 10, 2)
         .with_input_dropout(0.1, false)
@@ -47,6 +47,7 @@ fn step_lr_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: true,
+        early_stopping: None,
     };
     
     let mut trainer = create_step_lr_trainer(network, 0.01, 10, 0.5)
@@ -60,8 +61,8 @@ fn step_lr_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
 
 fn one_cycle_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
                      val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) {
-    println!("2️⃣  OneCycle Learning Rate Policy Example");
-    println!("   Starts low, ramps up to max, then anneals down\n");
+    println!("OneCycle Learning Rate Policy Example");
+    println!("Starts low, ramps up to max, then anneals down\n");
     
     let network = LSTMNetwork::new(1, 10, 2);
     
@@ -83,8 +84,8 @@ fn one_cycle_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
 
 fn cosine_annealing_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
                            val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) {
-    println!("3️⃣  Cosine Annealing Example");
-    println!("   Smoothly oscillates LR following cosine curve\n");
+    println!("Cosine Annealing Example");
+    println!("Smoothly oscillates LR following cosine curve\n");
     
     let network = LSTMNetwork::new(1, 10, 2);
     
@@ -106,8 +107,8 @@ fn cosine_annealing_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
 
 fn exponential_decay_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
                             val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) {
-    println!("4️⃣  Exponential Decay Example");
-    println!("   Continuously decays LR by factor of 0.95 each epoch\n");
+    println!("Exponential Decay Example");
+    println!("Continuously decays LR by factor of 0.95 each epoch\n");
     
     let network = LSTMNetwork::new(1, 10, 2);
     
@@ -123,6 +124,7 @@ fn exponential_decay_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]
         print_every: 6,
         clip_gradient: Some(1.0),
         log_lr_changes: true,
+        early_stopping: None,
     };
     
     let mut trainer = ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
@@ -136,8 +138,8 @@ fn exponential_decay_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]
 
 fn reduce_on_plateau_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
                             val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) {
-    println!("5️⃣  ReduceLROnPlateau Example");
-    println!("   Reduces LR when validation loss stops improving\n");
+    println!("ReduceLROnPlateau Example");
+    println!("Reduces LR when validation loss stops improving\n");
     
     let network = LSTMNetwork::new(1, 10, 2);
     
@@ -151,6 +153,7 @@ fn reduce_on_plateau_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]
         print_every: 5,
         clip_gradient: Some(1.0),
         log_lr_changes: true,
+        early_stopping: None,
     };
     
     println!("Training with manual ReduceLROnPlateau stepping...");
@@ -179,8 +182,8 @@ fn reduce_on_plateau_example(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]
 
 fn scheduler_comparison(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
                        val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) {
-    println!("6️⃣  Scheduler Comparison");
-    println!("   Training the same network with different schedulers\n");
+    println!("Scheduler Comparison");
+    println!("Training the same network with different schedulers\n");
     
     let schedulers = vec![
         ("Constant", "constant"),
@@ -190,7 +193,7 @@ fn scheduler_comparison(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
     ];
     
     for (name, scheduler_type) in schedulers {
-        println!("🔄 Testing {} scheduler:", name);
+        println!("Testing {} scheduler:", name);
         
         let network = LSTMNetwork::new(1, 8, 1); // Smaller network for faster comparison
         
@@ -236,7 +239,7 @@ fn scheduler_comparison(train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
         println!("   Final validation loss: {:.6}\n", final_loss);
     }
     
-    println!("✅ Comparison complete! Check which scheduler performed best.");
+    println!("Comparison complete! Check which scheduler performed best.");
 }
 
 fn generate_sine_wave_data(num_sequences: usize, offset: f64) -> Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)> {
