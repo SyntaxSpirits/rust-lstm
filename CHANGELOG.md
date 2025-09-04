@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-09-04
+
+### Added
+- **Early Stopping**: Complete early stopping implementation for all trainers
+  - **Configurable Patience**: Stop training after N epochs without improvement
+  - **Multiple Metrics**: Monitor validation loss or training loss
+  - **Best Weight Restoration**: Automatically restore best weights when stopping
+  - **Flexible Configuration**: Customizable min_delta threshold and monitoring options
+  - **Universal Support**: Works with LSTMTrainer, ScheduledLSTMTrainer, and LSTMBatchTrainer
+
+- **Enhanced Training Features**:
+  - **Visual Best Epoch Indicators**: "*" markers in training logs for best epochs
+  - **Automatic Overfitting Prevention**: Stop training before performance degrades
+  - **Comprehensive Logging**: Detailed early stopping trigger information
+  - **Weight Management**: Optional best weight restoration for optimal model recovery
+
+- **Examples and Documentation**:
+  - **Complete Early Stopping Example**: Demonstration of all early stopping configurations
+  - **Multiple Scenarios**: Validation loss, training loss, and custom patience examples
+  - **Integration Examples**: Shows usage with different trainer types
+  - **Comprehensive Testing**: Full test suite for early stopping functionality
+
+### Enhanced
+- **All Trainers**: Added early stopping support to LSTMTrainer, ScheduledLSTMTrainer, and LSTMBatchTrainer
+- **Training Configuration**: Extended TrainingConfig with optional early stopping settings
+- **Training Loops**: Enhanced all training loops with early stopping logic and best epoch tracking
+
 ## [0.5.0] - 2025-08-14
 
 ### Added

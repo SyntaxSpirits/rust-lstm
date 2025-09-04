@@ -3,6 +3,7 @@ use crate::models::lstm_network::LSTMNetwork;
 use crate::loss::{LossFunction, MSELoss};
 use crate::optimizers::{Optimizer, SGD, ScheduledOptimizer};
 use crate::schedulers::LearningRateScheduler;
+use crate::persistence::SerializableLSTMNetwork;
 use std::time::Instant;
 
 /// Configuration for training hyperparameters
@@ -11,6 +12,38 @@ pub struct TrainingConfig {
     pub print_every: usize,
     pub clip_gradient: Option<f64>,
     pub log_lr_changes: bool,
+    pub early_stopping: Option<EarlyStoppingConfig>,
+}
+
+/// Configuration for early stopping
+#[derive(Debug, Clone)]
+pub struct EarlyStoppingConfig {
+    /// Number of epochs with no improvement after which training will be stopped
+    pub patience: usize,
+    /// Minimum change in the monitored quantity to qualify as an improvement
+    pub min_delta: f64,
+    /// Whether to restore the best weights when early stopping triggers
+    pub restore_best_weights: bool,
+    /// Metric to monitor for early stopping ('val_loss' or 'train_loss')
+    pub monitor: EarlyStoppingMetric,
+}
+
+/// Metric to monitor for early stopping
+#[derive(Debug, Clone, PartialEq)]
+pub enum EarlyStoppingMetric {
+    ValidationLoss,
+    TrainLoss,
+}
+
+impl Default for EarlyStoppingConfig {
+    fn default() -> Self {
+        EarlyStoppingConfig {
+            patience: 10,
+            min_delta: 1e-4,
+            restore_best_weights: true,
+            monitor: EarlyStoppingMetric::ValidationLoss,
+        }
+    }
 }
 
 impl Default for TrainingConfig {
@@ -20,6 +53,7 @@ impl Default for TrainingConfig {
             print_every: 10,
             clip_gradient: Some(5.0),
             log_lr_changes: true,
+            early_stopping: None,
         }
     }
 }
@@ -34,6 +68,88 @@ pub struct TrainingMetrics {
     pub learning_rate: f64,
 }
 
+/// Early stopping state tracker
+#[derive(Debug, Clone)]
+pub struct EarlyStopper {
+    config: EarlyStoppingConfig,
+    best_score: f64,
+    wait_count: usize,
+    stopped_epoch: Option<usize>,
+    best_weights: Option<SerializableLSTMNetwork>, // Serialized network weights
+}
+
+impl EarlyStopper {
+    pub fn new(config: EarlyStoppingConfig) -> Self {
+        EarlyStopper {
+            config,
+            best_score: f64::INFINITY,
+            wait_count: 0,
+            stopped_epoch: None,
+            best_weights: None,
+        }
+    }
+
+    /// Check if training should stop based on current metrics
+    /// Returns (should_stop, is_best_score)
+    pub fn should_stop(&mut self, current_metrics: &TrainingMetrics, network: &LSTMNetwork) -> (bool, bool) {
+        let current_score = match self.config.monitor {
+            EarlyStoppingMetric::ValidationLoss => {
+                match current_metrics.validation_loss {
+                    Some(val_loss) => val_loss,
+                    None => {
+                        // If validation loss is not available, fall back to train loss
+                        current_metrics.train_loss
+                    }
+                }
+            }
+            EarlyStoppingMetric::TrainLoss => current_metrics.train_loss,
+        };
+
+        let is_improvement = current_score < self.best_score - self.config.min_delta;
+        
+        if is_improvement {
+            self.best_score = current_score;
+            self.wait_count = 0;
+            
+            // Save best weights if restore_best_weights is enabled
+            if self.config.restore_best_weights {
+                self.best_weights = Some(network.into());
+            }
+            
+            (false, true)
+        } else {
+            self.wait_count += 1;
+            
+            if self.wait_count >= self.config.patience {
+                self.stopped_epoch = Some(current_metrics.epoch);
+                (true, false)
+            } else {
+                (false, false)
+            }
+        }
+    }
+
+    /// Get the epoch where training was stopped
+    pub fn stopped_epoch(&self) -> Option<usize> {
+        self.stopped_epoch
+    }
+
+    /// Get the best score achieved
+    pub fn best_score(&self) -> f64 {
+        self.best_score
+    }
+
+    /// Restore the best weights to the network if available
+    pub fn restore_best_weights(&self, network: &mut LSTMNetwork) -> Result<(), String> {
+        if let Some(ref weights) = self.best_weights {
+            *network = weights.clone().into();
+            Ok(())
+        } else {
+            Err("No best weights available to restore".to_string())
+        }
+    }
+}
+
 /// Main trainer for LSTM networks with configurable loss and optimizer
 pub struct LSTMTrainer<L: LossFunction, O: Optimizer> {
     pub network: LSTMNetwork,
@@ -41,6 +157,7 @@ pub struct LSTMTrainer<L: LossFunction, O: Optimizer> {
     pub optimizer: O,
     pub config: TrainingConfig,
     pub metrics_history: Vec<TrainingMetrics>,
+    early_stopper: Option<EarlyStopper>,
 }
 
 impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
@@ -51,10 +168,15 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             optimizer,
             config: TrainingConfig::default(),
             metrics_history: Vec::new(),
+            early_stopper: None,
         }
     }
 
     pub fn with_config(mut self, config: TrainingConfig) -> Self {
+        // Initialize early stopper if early stopping is configured
+        self.early_stopper = config.early_stopping.as_ref().map(|es_config| {
+            EarlyStopper::new(es_config.clone())
+        });
         self.config = config;
         self
     }
@@ -136,14 +258,40 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
             self.metrics_history.push(metrics.clone());
 
+            // Check early stopping
+            let mut should_stop = false;
+            let mut is_best = false;
+            if let Some(ref mut early_stopper) = self.early_stopper {
+                let (stop, best) = early_stopper.should_stop(&metrics, &self.network);
+                should_stop = stop;
+                is_best = best;
+            }
+
             if epoch % self.config.print_every == 0 {
+                let best_indicator = if is_best { " *" } else { "" };
                 if let Some(val_loss) = validation_loss {
-                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s", 
-                             epoch, epoch_loss, val_loss, current_lr, time_elapsed);
+                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
+                             epoch, epoch_loss, val_loss, current_lr, time_elapsed, best_indicator);
                 } else {
-                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s", 
-                             epoch, epoch_loss, current_lr, time_elapsed);
+                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
+                             epoch, epoch_loss, current_lr, time_elapsed, best_indicator);
                 }
+            }
+
+            if should_stop {
+                let stopped_epoch = self.early_stopper.as_ref().unwrap().stopped_epoch().unwrap();
+                let best_score = self.early_stopper.as_ref().unwrap().best_score();
+                println!("Early stopping triggered at epoch {} (best score: {:.6})", stopped_epoch, best_score);
+                
+                // Restore best weights if configured
+                if let Some(ref early_stopper) = self.early_stopper {
+                    if let Err(e) = early_stopper.restore_best_weights(&mut self.network) {
+                        println!("Warning: Could not restore best weights: {}", e);
+                    } else {
+                        println!("Restored best weights from epoch with score {:.6}", best_score);
+                    }
+                }
+                break;
             }
         }
 
@@ -229,6 +377,7 @@ pub struct ScheduledLSTMTrainer<L: LossFunction, O: Optimizer, S: LearningRateSc
     pub optimizer: ScheduledOptimizer<O, S>,
     pub config: TrainingConfig,
     pub metrics_history: Vec<TrainingMetrics>,
+    early_stopper: Option<EarlyStopper>,
 }
 
 impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrainer<L, O, S> {
@@ -239,10 +388,15 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
             optimizer,
             config: TrainingConfig::default(),
             metrics_history: Vec::new(),
+            early_stopper: None,
         }
     }
 
     pub fn with_config(mut self, config: TrainingConfig) -> Self {
+        // Initialize early stopper if early stopping is configured
+        self.early_stopper = config.early_stopping.as_ref().map(|es_config| {
+            EarlyStopper::new(es_config.clone())
+        });
         self.config = config;
         self
     }
@@ -338,14 +492,40 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
 
             self.metrics_history.push(metrics.clone());
 
+            // Check early stopping
+            let mut should_stop = false;
+            let mut is_best = false;
+            if let Some(ref mut early_stopper) = self.early_stopper {
+                let (stop, best) = early_stopper.should_stop(&metrics, &self.network);
+                should_stop = stop;
+                is_best = best;
+            }
+
             if epoch % self.config.print_every == 0 {
+                let best_indicator = if is_best { " *" } else { "" };
                 if let Some(val_loss) = validation_loss {
-                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s", 
-                             epoch, epoch_loss, val_loss, new_lr, time_elapsed);
+                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
+                             epoch, epoch_loss, val_loss, new_lr, time_elapsed, best_indicator);
                 } else {
-                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s", 
-                             epoch, epoch_loss, new_lr, time_elapsed);
+                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
+                             epoch, epoch_loss, new_lr, time_elapsed, best_indicator);
                 }
+            }
+
+            if should_stop {
+                let stopped_epoch = self.early_stopper.as_ref().unwrap().stopped_epoch().unwrap();
+                let best_score = self.early_stopper.as_ref().unwrap().best_score();
+                println!("Early stopping triggered at epoch {} (best score: {:.6})", stopped_epoch, best_score);
+                
+                // Restore best weights if configured
+                if let Some(ref early_stopper) = self.early_stopper {
+                    if let Err(e) = early_stopper.restore_best_weights(&mut self.network) {
+                        println!("Warning: Could not restore best weights: {}", e);
+                    } else {
+                        println!("Restored best weights from epoch with score {:.6}", best_score);
+                    }
+                }
+                break;
             }
         }
 
@@ -447,6 +627,7 @@ pub struct LSTMBatchTrainer<L: LossFunction, O: Optimizer> {
     pub optimizer: O,
     pub config: TrainingConfig,
     pub metrics_history: Vec<TrainingMetrics>,
+    early_stopper: Option<EarlyStopper>,
 }
 
 impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
@@ -457,10 +638,15 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
             optimizer,
             config: TrainingConfig::default(),
             metrics_history: Vec::new(),
+            early_stopper: None,
         }
     }
 
     pub fn with_config(mut self, config: TrainingConfig) -> Self {
+        // Initialize early stopper if early stopping is configured
+        self.early_stopper = config.early_stopping.as_ref().map(|es_config| {
+            EarlyStopper::new(es_config.clone())
+        });
         self.config = config;
         self
     }
@@ -645,14 +831,40 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
 
             self.metrics_history.push(metrics.clone());
 
+            // Check early stopping
+            let mut should_stop = false;
+            let mut is_best = false;
+            if let Some(ref mut early_stopper) = self.early_stopper {
+                let (stop, best) = early_stopper.should_stop(&metrics, &self.network);
+                should_stop = stop;
+                is_best = best;
+            }
+
             if epoch % self.config.print_every == 0 {
+                let best_indicator = if is_best { " *" } else { "" };
                 if let Some(val_loss) = validation_loss {
-                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}", 
-                             epoch, epoch_loss, val_loss, current_lr, time_elapsed, num_batches);
+                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}{}", 
+                             epoch, epoch_loss, val_loss, current_lr, time_elapsed, num_batches, best_indicator);
                 } else {
-                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}", 
-                             epoch, epoch_loss, current_lr, time_elapsed, num_batches);
+                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}{}", 
+                             epoch, epoch_loss, current_lr, time_elapsed, num_batches, best_indicator);
                 }
+            }
+
+            if should_stop {
+                let stopped_epoch = self.early_stopper.as_ref().unwrap().stopped_epoch().unwrap();
+                let best_score = self.early_stopper.as_ref().unwrap().best_score();
+                println!("Early stopping triggered at epoch {} (best score: {:.6})", stopped_epoch, best_score);
+                
+                // Restore best weights if configured
+                if let Some(ref early_stopper) = self.early_stopper {
+                    if let Err(e) = early_stopper.restore_best_weights(&mut self.network) {
+                        println!("Warning: Could not restore best weights: {}", e);
+                    } else {
+                        println!("Restored best weights from epoch with score {:.6}", best_score);
+                    }
+                }
+                break;
             }
         }
 
