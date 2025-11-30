@@ -1,0 +1,105 @@
+---
+description: >
+  Enforce clear, consistent, and high-quality code contributions that follow
+  language best practices, maintain performance, avoid unnecessary comments,
+  ensure meaningful naming, follow existing project patterns, and include
+  only necessary tests and documentation.
+globs:
+  - "**/*.rb"
+  - "**/*.js"
+  - "**/*.ts"
+  - "**/*.rs"
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Code Quality & Consistency Guidelines
+
+## 1. Comments
+- **Add comments only when necessary**:
+  - Use comments to clarify complex logic or provide essential context.
+  - Avoid comments for obvious code or self-explanatory logic.
+  - Do not add filler comments that simply restate what the code does.
+- **Comment style**:
+  - Must be human-written — no AI-generated text.
+  - Avoid strange words, unnecessary emojis/icons, or stylistic flourishes.
+  - Be concise, clear, and relevant.
+
+**Example — Preferred:**
+```ruby
+# Converts amount to cents for storage
+amount_in_cents = amount.to_i * 100
+```
+
+**Example — Avoid:**
+```ruby
+# This method multiplies amount by 100 and stores it in cents 💰
+amount_in_cents = amount.to_i * 100
+```
+
+---
+
+## 2. Best Practices & Performance
+- Follow **language-specific best practices** (Ruby, JavaScript, TypeScript, Python, etc.).
+- Consider **performance impact** of every change — avoid unnecessary iterations, queries, or allocations.
+- Prefer **clear, maintainable code** over clever one-liners.
+- Use built-in methods and idiomatic patterns where possible.
+
+---
+
+## 3. Codebase Consistency
+- Check **common patterns** in existing files before implementing new logic.
+- Match:
+  - Naming conventions.
+  - File structure and organization.
+  - Indentation, formatting, and spacing.
+- Ensure **consistent style** across the project.
+
+---
+
+## 4. Flexibility & Patterns
+- When appropriate, make code flexible using known design patterns (e.g., Strategy, Adapter, Factory).
+- Prefer **dependency injection** over hardcoding.
+- Keep business logic decoupled from presentation and infrastructure where possible.
+- Avoid over-engineering — use patterns only if they bring clear value.
+
+---
+
+## 5. Testing
+- Code should be covered by **important and necessary** tests — avoid writing random, redundant, or meaningless tests.
+- Tests must:
+  - Be meaningful and target critical functionality.
+  - Use consistent structure and style from existing tests.
+  - Avoid unnecessary mocks or setups unless needed.
+
+---
+
+## 6. Documentation
+- Documentation, README, and inline explanations must be **clear and human-written**.
+- Avoid auto-generated descriptions unless manually reviewed and improved.
+- Only include **important and relevant** details — no fluff.
+
+---
+
+## 7. Naming Conventions
+- Variables, methods, and classes should have **clear, understandable, and descriptive names**.
+- Avoid abbreviations unless well-known and used consistently in the codebase.
+- Names should indicate intent and purpose without requiring a comment.
+
+**Good:**
+```ruby
+def fetch_active_users
+```
+
+**Bad:**
+```ruby
+def getUsrs
+```
+
+---
+
+## 8. General Rules
+- No meaningless comments or placeholders.
+- No AI-generated filler text.
+- Follow **principle of least surprise** — make code predictable for future maintainers.
+- Maintain balance between **clarity**, **performance**, and **flexibility**.
