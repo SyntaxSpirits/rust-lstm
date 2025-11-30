@@ -31,3 +31,4 @@ ehthumbs.db
 /target/debug/deps/*
 lcov.info
 *.profraw
+.cursor/
