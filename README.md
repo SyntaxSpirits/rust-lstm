@@ -34,14 +34,14 @@ graph TD
 ## Features
 
 - **LSTM, BiLSTM & GRU Networks** with multi-layer support
+- **Linear (Dense) Layer** for classification and output projection
 - **Complete Training System** with backpropagation through time (BPTT)
-- **Multiple Optimizers**: SGD, Adam, RMSprop with comprehensive learning rate scheduling
-- **Advanced Learning Rate Scheduling**: 12 different schedulers including OneCycle, Warmup, Cyclical, and Polynomial
-- **Early Stopping**: Prevent overfitting with configurable patience and metric monitoring
+- **Multiple Optimizers**: SGD, Adam, RMSprop with learning rate scheduling
+- **Learning Rate Scheduling**: 12 schedulers including OneCycle, Warmup, Cyclical, Polynomial
+- **Early Stopping**: Configurable patience and metric monitoring
 - **Loss Functions**: MSE, MAE, Cross-entropy with softmax
-- **Advanced Dropout**: Input, recurrent, output dropout, variational dropout, and zoneout
-- **Batch Processing**: 4-5x training speedup with efficient batch operations
-- **Schedule Visualization**: ASCII visualization of learning rate schedules
+- **Advanced Dropout**: Input, recurrent, output, variational dropout, and zoneout
+- **Batch Processing**: Efficient batch operations
 - **Model Persistence**: Save/load models in JSON or binary format
 - **Peephole LSTM variant** for enhanced performance
 
@@ -51,7 +51,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-lstm = "0.5.0"
+rust-lstm = "0.6"
 ```
 
 ### Basic Usage
@@ -181,6 +181,24 @@ let mut gru = GRUNetwork::new(input_size, hidden_size, num_layers)
 let (output, _) = gru.forward(&input, &hidden_state);
 ```
 
+### Linear Layer
+
+```rust
+use rust_lstm::layers::linear::LinearLayer;
+use rust_lstm::optimizers::Adam;
+
+// Create linear layer for classification: hidden_size -> num_classes
+let mut classifier = LinearLayer::new(hidden_size, num_classes);
+let mut optimizer = Adam::new(0.001);
+
+// Forward pass
+let logits = classifier.forward(&lstm_output);
+
+// Backward pass
+let (gradients, input_grad) = classifier.backward(&grad_output);
+classifier.update_parameters(&gradients, &mut optimizer, "classifier");
+```
+
 #### LSTM vs GRU Cell Comparison
 
 ```mermaid
@@ -261,13 +279,13 @@ LRScheduleVisualizer::print_schedule(poly_scheduler, 0.01, 100, 60, 10);
 - **OneCycleLR**: One cycle policy for super-convergence
 - **ReduceLROnPlateau**: Adaptive reduction on validation plateaus
 - **LinearLR**: Linear interpolation between rates
-- **PolynomialLR** ✨: Polynomial decay with configurable power
-- **CyclicalLR** ✨: Triangular, triangular2, and exponential range modes
-- **WarmupScheduler** ✨: Gradual warmup wrapper for any base scheduler
+- **PolynomialLR**: Polynomial decay with configurable power
+- **CyclicalLR**: Triangular, triangular2, and exponential range modes
+- **WarmupScheduler**: Gradual warmup wrapper for any base scheduler
 
 ## Architecture
 
-- **`layers`**: LSTM and GRU cells (standard, peephole, bidirectional) with dropout
+- **`layers`**: LSTM cells, GRU cells, Linear (dense) layer, dropout, peephole LSTM, bidirectional LSTM
 - **`models`**: High-level network architectures (LSTM, BiLSTM, GRU)
 - **`training`**: Training utilities with automatic train/eval mode switching
 - **`optimizers`**: SGD, Adam, RMSprop with scheduling
@@ -288,7 +306,8 @@ cargo run --example time_series_prediction
 # Advanced architectures
 cargo run --example gru_example              # GRU vs LSTM comparison
 cargo run --example bilstm_example           # Bidirectional LSTM
-cargo run --example dropout_example          # Dropout demo
+cargo run --example dropout_example          # Dropout regularization
+cargo run --example linear_layer_example     # Linear layer for classification
 
 # Learning and scheduling
 cargo run --example learning_rate_scheduling    # Basic schedulers
@@ -343,36 +362,12 @@ cargo run --example model_inspection
 cargo test
 ```
 
-## Performance Examples
-
-The library includes comprehensive examples that demonstrate its capabilities:
-
-### Training with Different Schedulers
-Run the learning rate scheduling examples to see different scheduler behaviors:
-```bash
-cargo run --example learning_rate_scheduling    # Compare basic schedulers
-cargo run --example advanced_lr_scheduling      # Advanced schedulers with ASCII visualization
-```
-
-### Architecture Comparison  
-Compare LSTM vs GRU performance:
-```bash
-cargo run --example gru_example
-```
-
-### Real-world Applications
-Test the library with practical examples:
-```bash
-cargo run --example stock_prediction      # Stock price predictions
-cargo run --example weather_prediction    # Weather forecasting  
-cargo run --example text_classification_bilstm  # Classification accuracy
-```
-
-The examples output training metrics, loss values, and predictions that you can analyze or plot with external tools.
-
 ## Version History
 
-- **v0.4.0**: Advanced learning rate scheduling with 12 different schedulers, warmup support, cyclical learning rates, polynomial decay, and ASCII visualization
+- **v0.6.1**: Fixed text generation in advanced example
+- **v0.6.0**: Early stopping support with configurable patience and metric monitoring
+- **v0.5.0**: Model persistence (JSON/binary), batch processing
+- **v0.4.0**: Advanced learning rate scheduling (12 schedulers), warmup, cyclical LR, visualization
 - **v0.3.0**: Bidirectional LSTM networks with flexible combine modes
 - **v0.2.0**: Complete training system with BPTT and comprehensive dropout
 - **v0.1.0**: Initial LSTM implementation with forward pass
