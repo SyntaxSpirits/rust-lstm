@@ -92,3 +92,7 @@ path = "examples/batch_processing_example.rs"
 [[example]]
 name = "early_stopping_example"
 path = "examples/early_stopping_example.rs"
+
+[[example]]
+name = "linear_layer_example"
+path = "examples/linear_layer_example.rs"

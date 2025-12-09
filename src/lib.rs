@@ -50,6 +50,7 @@ pub use layers::peephole_lstm_cell::PeepholeLSTMCell;
 pub use layers::gru_cell::{GRUCell, GRUCellGradients, GRUCellCache};
 pub use layers::bilstm_network::{BiLSTMNetwork, CombineMode, BiLSTMNetworkCache};
 pub use layers::dropout::{Dropout, Zoneout};
+pub use layers::linear::{LinearLayer, LinearGradients};
 pub use training::{
     LSTMTrainer, ScheduledLSTMTrainer, LSTMBatchTrainer, TrainingConfig, TrainingMetrics,
     EarlyStoppingConfig, EarlyStoppingMetric, EarlyStopper,
