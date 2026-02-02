@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-02
+
+### Added
+- **Text Generation Utilities**: `TextVocabulary`, `CharacterEmbedding`, sampling functions
+  - `sample_with_temperature`, `sample_top_k`, `sample_nucleus`
+  - `argmax`, `softmax` helpers
+  - `text_utils_example.rs` demonstration
+
+### Changed
+- `text_generation_advanced.rs` refactored to use new text utilities
+
 ## [0.7.0] - 2026-01-06
 
 ### Added
