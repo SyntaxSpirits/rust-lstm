@@ -41,6 +41,7 @@ pub mod optimizers;
 pub mod schedulers;
 pub mod training;
 pub mod persistence;
+pub mod text;
 
 // Re-export commonly used items
 pub use models::lstm_network::{LSTMNetwork, LSTMNetworkCache, LSTMNetworkBatchCache, LayerDropoutConfig};
@@ -67,6 +68,10 @@ pub use schedulers::{
 };
 pub use loss::{LossFunction, MSELoss, MAELoss, CrossEntropyLoss};
 pub use persistence::{ModelPersistence, PersistentModel, ModelMetadata, PersistenceError};
+pub use text::{
+    TextVocabulary, CharacterEmbedding, EmbeddingGradients,
+    sample_with_temperature, sample_top_k, sample_nucleus, argmax, softmax
+};
 
 #[cfg(test)]
 mod tests {
