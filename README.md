@@ -51,7 +51,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-lstm = "0.6"
+rust-lstm = "0.8"
 ```
 
 ### Basic Usage
@@ -78,6 +78,7 @@ fn main() {
 ### Training Example
 
 ```rust
+use ndarray::Array2;
 use rust_lstm::{LSTMNetwork, create_basic_trainer, TrainingConfig};
 
 fn main() {
@@ -94,8 +95,15 @@ fn main() {
             ..Default::default()
         });
     
-    // Train (train_data is slice of (input_sequence, target_sequence) tuples)
-    // Each input_sequence and target_sequence is Vec<Array2<f64>>
+    // Train data is a slice of (input_sequence, target_sequence) tuples.
+    // Each input_sequence and target_sequence is Vec<Array2<f64>>.
+    let train_data = vec![(
+        vec![Array2::from_shape_vec((1, 1), vec![0.0]).unwrap()],
+        vec![Array2::from_shape_vec((10, 1), vec![0.0; 10]).unwrap()],
+    )];
+    // Keep validation data separate from training data in real applications.
+    let validation_data = train_data.clone();
+
     trainer.train(&train_data, Some(&validation_data));
 }
 ```
@@ -103,6 +111,7 @@ fn main() {
 ### Early Stopping
 
 ```rust
+use ndarray::Array2;
 use rust_lstm::{
     LSTMNetwork, create_basic_trainer, TrainingConfig, 
     EarlyStoppingConfig, EarlyStoppingMetric
@@ -128,6 +137,13 @@ fn main() {
     let mut trainer = create_basic_trainer(network, 0.001)
         .with_config(config);
     
+    let train_data = vec![(
+        vec![Array2::from_shape_vec((1, 1), vec![0.0]).unwrap()],
+        vec![Array2::from_shape_vec((10, 1), vec![0.0; 10]).unwrap()],
+    )];
+    // Keep validation data separate from training data in real applications.
+    let validation_data = train_data.clone();
+
     // Training will stop early if validation loss stops improving
     trainer.train(&train_data, Some(&validation_data));
 }
@@ -136,7 +152,16 @@ fn main() {
 ### Bidirectional LSTM
 
 ```rust
-use rust_lstm::layers::bilstm_network::{BiLSTMNetwork, CombineMode};
+use ndarray::Array2;
+use rust_lstm::layers::bilstm_network::BiLSTMNetwork;
+
+let input_size = 3;
+let hidden_size = 5;
+let num_layers = 1;
+let sequence = vec![
+    Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap(),
+    Array2::from_shape_vec((input_size, 1), vec![0.2, -0.4, 0.7]).unwrap(),
+];
 
 // BiLSTM with concatenated outputs (output_size = 2 * hidden_size)
 let mut bilstm = BiLSTMNetwork::new_concat(input_size, hidden_size, num_layers);
@@ -170,22 +195,37 @@ graph TD
 ### GRU Networks
 
 ```rust
+use ndarray::Array2;
 use rust_lstm::models::gru_network::GRUNetwork;
+
+let input_size = 3;
+let hidden_size = 5;
+let num_layers = 2;
 
 // Create GRU network (alternative to LSTM)
 let mut gru = GRUNetwork::new(input_size, hidden_size, num_layers)
     .with_input_dropout(0.2, true)
     .with_recurrent_dropout(0.3, true);
 
-// Forward pass
-let (output, _) = gru.forward(&input, &hidden_state);
+let input = Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap();
+let hidden_states = vec![Array2::zeros((hidden_size, 1)); num_layers];
+
+// Forward pass returns one hidden state per layer
+let outputs = gru.forward(&input, &hidden_states);
+let output = outputs.last().unwrap();
 ```
 
 ### Linear Layer
 
 ```rust
+use ndarray::Array2;
 use rust_lstm::layers::linear::LinearLayer;
 use rust_lstm::optimizers::Adam;
+
+let hidden_size = 4;
+let num_classes = 3;
+let lstm_output = Array2::ones((hidden_size, 1));
+let grad_output = Array2::ones((num_classes, 1));
 
 // Create linear layer for classification: hidden_size -> num_classes
 let mut classifier = LinearLayer::new(hidden_size, num_classes);
@@ -251,7 +291,7 @@ use rust_lstm::{
 let network = LSTMNetwork::new(1, 10, 2);
 
 // Step decay: reduce LR by 50% every 10 epochs
-let mut trainer = create_step_lr_trainer(network, 0.01, 10, 0.5);
+let mut trainer = create_step_lr_trainer(network.clone(), 0.01, 10, 0.5);
 
 // OneCycle policy for modern deep learning
 let mut trainer = create_one_cycle_trainer(network.clone(), 0.1, 100);
