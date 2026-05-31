@@ -1,11 +1,19 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 use ndarray::Array2;
 use rust_lstm::{
-    LSTMNetwork, LayerDropoutConfig, LSTMTrainer, TrainingConfig,
     layers::dropout::{Dropout, Zoneout},
     layers::peephole_lstm_cell::PeepholeLSTMCell,
-    optimizers::{SGD, Adam, RMSprop},
-    loss::{MSELoss, MAELoss, CrossEntropyLoss},
+    loss::{CrossEntropyLoss, MAELoss, MSELoss},
+    optimizers::{Adam, RMSprop, SGD},
     training::create_basic_trainer,
+    LSTMNetwork, LSTMTrainer, LayerDropoutConfig, TrainingConfig,
 };
 
 #[test]
@@ -39,28 +47,26 @@ fn test_dropout_regularization_example() {
 
     // Create network with uniform dropout across all layers
     let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_input_dropout(0.2, true)      // 20% variational input dropout
-        .with_recurrent_dropout(0.3, true)  // 30% variational recurrent dropout
-        .with_output_dropout(0.1)           // 10% output dropout
-        .with_zoneout(0.05, 0.1);          // 5% cell, 10% hidden zoneout
+        .with_input_dropout(0.2, true) // 20% variational input dropout
+        .with_recurrent_dropout(0.3, true) // 30% variational recurrent dropout
+        .with_output_dropout(0.1) // 10% output dropout
+        .with_zoneout(0.05, 0.1); // 5% cell, 10% hidden zoneout
 
     // Configure dropout per layer for fine-grained control
     let layer_configs = vec![
-        LayerDropoutConfig::new()
-            .with_input_dropout(0.1, false),
+        LayerDropoutConfig::new().with_input_dropout(0.1, false),
         LayerDropoutConfig::new()
             .with_recurrent_dropout(0.2, true)
             .with_zoneout(0.05, 0.1),
-        LayerDropoutConfig::new()
-            .with_output_dropout(0.1),
+        LayerDropoutConfig::new().with_output_dropout(0.1),
     ];
-    
-    let mut custom_network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_layer_dropout(layer_configs);
+
+    let mut custom_network =
+        LSTMNetwork::new(input_size, hidden_size, num_layers).with_layer_dropout(layer_configs);
 
     // Set training mode (enables dropout)
     network.train();
-    
+
     // Set evaluation mode (disables dropout)
     network.eval();
 
@@ -83,12 +89,12 @@ fn test_training_example() {
         .with_input_dropout(0.2, true)
         .with_recurrent_dropout(0.3, true)
         .with_output_dropout(0.1);
-    
+
     // Setup training with Adam optimizer
     let loss_function = MSELoss;
     let optimizer = Adam::new(0.001);
     let mut trainer = LSTMTrainer::new(network, loss_function, optimizer);
-    
+
     // Configure training
     let config = TrainingConfig {
         epochs: 2, // Small number for test
@@ -98,17 +104,17 @@ fn test_training_example() {
         early_stopping: None,
     };
     trainer = trainer.with_config(config);
-    
+
     // Generate some training data
     let train_data = generate_test_data();
-    
+
     // Train the model (automatically handles train/eval modes)
     trainer.train(&train_data, None);
-    
+
     // Make predictions (automatically sets eval mode)
     let input_sequence = vec![Array2::zeros((1, 1)), Array2::ones((1, 1))];
     let predictions = trainer.predict(&input_sequence);
-    
+
     assert_eq!(predictions.len(), 2);
     assert_eq!(predictions[0].shape(), &[4, 1]);
 }
@@ -126,13 +132,13 @@ fn test_dropout_types_example() {
 
     // Test that they can be created without panicking
     let input = Array2::ones((3, 1));
-    
+
     dropout.train();
     let _output1 = dropout.forward(&input);
-    
+
     variational_dropout.train();
     let _output2 = variational_dropout.forward(&input);
-    
+
     let prev_state = Array2::zeros((3, 1));
     let _output3 = zoneout.apply_cell_zoneout(&input, &prev_state);
 }
@@ -171,15 +177,15 @@ fn test_loss_functions_example() {
 fn test_peephole_lstm_example() {
     let input_size = 3;
     let hidden_size = 4;
-    
+
     let cell = PeepholeLSTMCell::new(input_size, hidden_size);
-    
+
     let input = Array2::ones((input_size, 1));
     let h_prev = Array2::zeros((hidden_size, 1));
     let c_prev = Array2::zeros((hidden_size, 1));
-    
+
     let (h_t, c_t) = cell.forward(&input, &h_prev, &c_prev);
-    
+
     assert_eq!(h_t.shape(), &[hidden_size, 1]);
     assert_eq!(c_t.shape(), &[hidden_size, 1]);
 }
@@ -188,7 +194,7 @@ fn test_peephole_lstm_example() {
 fn test_create_basic_trainer() {
     let network = LSTMNetwork::new(2, 3, 1);
     let _trainer = create_basic_trainer(network, 0.01);
-    
+
     // Test that trainer can be created without panicking
     assert!(true);
 }
@@ -196,21 +202,23 @@ fn test_create_basic_trainer() {
 // Helper function to generate test data
 fn generate_test_data() -> Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)> {
     let mut data = Vec::new();
-    
-    for _seq_idx in 0..3 { // Small dataset for test
+
+    for _seq_idx in 0..3 {
+        // Small dataset for test
         let mut inputs = Vec::new();
         let mut targets = Vec::new();
-        
-        for _t in 0..2 { // Short sequences for test
+
+        for _t in 0..2 {
+            // Short sequences for test
             let input = Array2::ones((1, 1));
             let target = Array2::ones((4, 1)) * 0.5;
-            
+
             inputs.push(input);
             targets.push(target);
         }
-        
+
         data.push((inputs, targets));
     }
-    
+
     data
 }

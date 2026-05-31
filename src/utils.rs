@@ -1,4 +1,4 @@
-/// Utility functions for the LSTM library.
+//! Utility functions for the LSTM library.
 
 /// Sigmoid activation function
 pub fn sigmoid(x: f64) -> f64 {

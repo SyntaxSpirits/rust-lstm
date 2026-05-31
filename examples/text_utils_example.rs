@@ -1,14 +1,22 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 //! Example demonstrating text generation utilities.
 //!
 //! Shows TextVocabulary, CharacterEmbedding, and sampling functions.
 
 use ndarray::Array2;
-use rust_lstm::text::{
-    TextVocabulary, CharacterEmbedding,
-    sample_with_temperature, sample_top_k, sample_nucleus, argmax, softmax
-};
 use rust_lstm::layers::linear::LinearLayer;
 use rust_lstm::models::lstm_network::LSTMNetwork;
+use rust_lstm::text::{
+    argmax, sample_nucleus, sample_top_k, sample_with_temperature, softmax, CharacterEmbedding,
+    TextVocabulary,
+};
 
 fn main() {
     println!("Text Generation Utilities Demo");
@@ -32,14 +40,20 @@ fn main() {
     println!("\n2. CharacterEmbedding");
     let embed_dim = 16;
     let mut embedding = CharacterEmbedding::new(vocab.size(), embed_dim);
-    println!("   Embedding: {} chars -> {} dimensions", vocab.size(), embed_dim);
+    println!(
+        "   Embedding: {} chars -> {} dimensions",
+        vocab.size(),
+        embed_dim
+    );
     println!("   Parameters: {}", embedding.num_parameters());
 
     // Lookup single character
     let h_idx = vocab.char_to_index('H').unwrap();
     let h_vec = embedding.lookup(h_idx);
-    println!("   'H' embedding (first 4): [{:.3}, {:.3}, {:.3}, {:.3}, ...]",
-             h_vec[0], h_vec[1], h_vec[2], h_vec[3]);
+    println!(
+        "   'H' embedding (first 4): [{:.3}, {:.3}, {:.3}, {:.3}, ...]",
+        h_vec[0], h_vec[1], h_vec[2], h_vec[3]
+    );
 
     // Forward pass for sequence
     let seq_indices = vocab.encode("Hi");
@@ -64,14 +78,19 @@ fn main() {
     let logits_2d = output_layer.forward(&hidden);
     let logits = logits_2d.column(0).to_owned();
 
-    println!("   Input: 'H' -> embed({}) -> LSTM -> Linear -> logits({})",
-             embed_dim, vocab.size());
+    println!(
+        "   Input: 'H' -> embed({}) -> LSTM -> Linear -> logits({})",
+        embed_dim,
+        vocab.size()
+    );
 
     // 4. Sampling strategies
     println!("\n4. Sampling Strategies");
-    println!("   Logits range: [{:.2}, {:.2}]",
-             logits.iter().cloned().fold(f64::INFINITY, f64::min),
-             logits.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+    println!(
+        "   Logits range: [{:.2}, {:.2}]",
+        logits.iter().cloned().fold(f64::INFINITY, f64::min),
+        logits.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+    );
 
     // Greedy
     let greedy_idx = argmax(&logits);
@@ -100,7 +119,8 @@ fn main() {
     // 5. Softmax probabilities
     println!("\n5. Probability Distribution");
     let probs = softmax(&logits);
-    let mut prob_chars: Vec<_> = probs.iter()
+    let mut prob_chars: Vec<_> = probs
+        .iter()
         .enumerate()
         .map(|(i, &p)| (vocab.index_to_char(i).unwrap_or('?'), p))
         .collect();

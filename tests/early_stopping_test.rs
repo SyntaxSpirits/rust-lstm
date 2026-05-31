@@ -1,21 +1,27 @@
-use rust_lstm::*;
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 use ndarray::arr2;
+use rust_lstm::*;
 
 /// Test basic early stopping functionality
 #[test]
 fn test_early_stopping_basic() {
     let network = LSTMNetwork::new(1, 4, 1);
-    
+
     // Create a simple dataset that will converge quickly
     let train_data = vec![
         (vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])]),
         (vec![arr2(&[[0.5]])], vec![arr2(&[[0.25]])]),
     ];
-    
-    let val_data = vec![
-        (vec![arr2(&[[0.8]])], vec![arr2(&[[0.4]])]),
-    ];
-    
+
+    let val_data = vec![(vec![arr2(&[[0.8]])], vec![arr2(&[[0.4]])])];
+
     // Configure early stopping with very low patience for quick test
     let early_stopping_config = EarlyStoppingConfig {
         patience: 3,
@@ -23,7 +29,7 @@ fn test_early_stopping_basic() {
         restore_best_weights: true,
         monitor: EarlyStoppingMetric::ValidationLoss,
     };
-    
+
     let training_config = TrainingConfig {
         epochs: 50, // Should stop early
         print_every: 10,
@@ -31,27 +37,29 @@ fn test_early_stopping_basic() {
         log_lr_changes: false,
         early_stopping: Some(early_stopping_config),
     };
-    
-    let mut trainer = create_basic_trainer(network, 0.01)
-        .with_config(training_config);
-    
+
+    let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
+
     trainer.train(&train_data, Some(&val_data));
-    
+
     // Early stopping should have been configured (this test just verifies the configuration works)
     let final_metrics = trainer.get_latest_metrics().unwrap();
-    assert!(final_metrics.epoch >= 0, "Training should have run at least one epoch");
+    assert!(
+        final_metrics.epoch >= 0,
+        "Training should have run at least one epoch"
+    );
 }
 
 /// Test early stopping with training loss monitoring
 #[test]
 fn test_early_stopping_train_loss() {
     let network = LSTMNetwork::new(1, 4, 1);
-    
+
     let train_data = vec![
         (vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])]),
         (vec![arr2(&[[0.5]])], vec![arr2(&[[0.25]])]),
     ];
-    
+
     // Configure early stopping to monitor training loss
     let early_stopping_config = EarlyStoppingConfig {
         patience: 4,
@@ -59,7 +67,7 @@ fn test_early_stopping_train_loss() {
         restore_best_weights: false,
         monitor: EarlyStoppingMetric::TrainLoss,
     };
-    
+
     let training_config = TrainingConfig {
         epochs: 50,
         print_every: 10,
@@ -67,25 +75,25 @@ fn test_early_stopping_train_loss() {
         log_lr_changes: false,
         early_stopping: Some(early_stopping_config),
     };
-    
-    let mut trainer = create_basic_trainer(network, 0.01)
-        .with_config(training_config);
-    
+
+    let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
+
     trainer.train(&train_data, None); // No validation data
-    
+
     let final_metrics = trainer.get_latest_metrics().unwrap();
-    assert!(final_metrics.epoch >= 0, "Training should have run with train loss monitoring");
+    assert!(
+        final_metrics.epoch >= 0,
+        "Training should have run with train loss monitoring"
+    );
 }
 
 /// Test that training without early stopping runs full epochs
 #[test]
 fn test_no_early_stopping() {
     let network = LSTMNetwork::new(1, 4, 1);
-    
-    let train_data = vec![
-        (vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])]),
-    ];
-    
+
+    let train_data = vec![(vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])])];
+
     let training_config = TrainingConfig {
         epochs: 10,
         print_every: 5,
@@ -93,14 +101,16 @@ fn test_no_early_stopping() {
         log_lr_changes: false,
         early_stopping: None, // No early stopping
     };
-    
-    let mut trainer = create_basic_trainer(network, 0.01)
-        .with_config(training_config);
-    
+
+    let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
+
     trainer.train(&train_data, None);
-    
+
     let final_metrics = trainer.get_latest_metrics().unwrap();
-    assert_eq!(final_metrics.epoch, 9, "Should run all 10 epochs (0-indexed)");
+    assert_eq!(
+        final_metrics.epoch, 9,
+        "Should run all 10 epochs (0-indexed)"
+    );
 }
 
 /// Test early stopper configuration
@@ -112,13 +122,13 @@ fn test_early_stopper_config() {
         restore_best_weights: true,
         monitor: EarlyStoppingMetric::ValidationLoss,
     };
-    
+
     let mut stopper = EarlyStopper::new(config.clone());
-    
+
     // Test initial state
     assert_eq!(stopper.best_score(), f64::INFINITY);
     assert_eq!(stopper.stopped_epoch(), None);
-    
+
     // Create dummy network and metrics for testing
     let network = LSTMNetwork::new(1, 2, 1);
     let metrics = TrainingMetrics {
@@ -128,7 +138,7 @@ fn test_early_stopper_config() {
         time_elapsed: 1.0,
         learning_rate: 0.01,
     };
-    
+
     // First call should not stop and should be best
     let (should_stop, is_best) = stopper.should_stop(&metrics, &network);
     assert!(!should_stop);
@@ -145,9 +155,9 @@ fn test_early_stopping_min_delta() {
         restore_best_weights: false,
         monitor: EarlyStoppingMetric::ValidationLoss,
     });
-    
+
     let network = LSTMNetwork::new(1, 2, 1);
-    
+
     // First metric - should be best
     let metrics1 = TrainingMetrics {
         epoch: 0,
@@ -159,7 +169,7 @@ fn test_early_stopping_min_delta() {
     let (should_stop, is_best) = stopper.should_stop(&metrics1, &network);
     assert!(!should_stop);
     assert!(is_best);
-    
+
     // Small improvement (less than min_delta) - should not be considered improvement
     let metrics2 = TrainingMetrics {
         epoch: 1,
@@ -171,7 +181,7 @@ fn test_early_stopping_min_delta() {
     let (should_stop, is_best) = stopper.should_stop(&metrics2, &network);
     assert!(!should_stop);
     assert!(!is_best); // Should not be considered best due to min_delta
-    
+
     // Another small improvement - should trigger early stopping due to patience
     let metrics3 = TrainingMetrics {
         epoch: 2,
@@ -188,22 +198,20 @@ fn test_early_stopping_min_delta() {
 /// Test early stopping with scheduled trainer
 #[test]
 fn test_early_stopping_with_scheduled_trainer() {
-    use rust_lstm::{ScheduledOptimizer, StepLR, Adam};
-    
+    use rust_lstm::{Adam, ScheduledOptimizer, StepLR};
+
     let network = LSTMNetwork::new(1, 4, 1);
     let optimizer = ScheduledOptimizer::new(Adam::new(0.01), StepLR::new(5, 0.5), 0.01);
-    
-    let train_data = vec![
-        (vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])]),
-    ];
-    
+
+    let train_data = vec![(vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])])];
+
     let early_stopping_config = EarlyStoppingConfig {
         patience: 3,
         min_delta: 1e-4,
         restore_best_weights: true,
         monitor: EarlyStoppingMetric::TrainLoss,
     };
-    
+
     let training_config = TrainingConfig {
         epochs: 30,
         print_every: 10,
@@ -211,34 +219,37 @@ fn test_early_stopping_with_scheduled_trainer() {
         log_lr_changes: false,
         early_stopping: Some(early_stopping_config),
     };
-    
-    let mut trainer = ScheduledLSTMTrainer::new(network, MSELoss, optimizer)
-        .with_config(training_config);
-    
+
+    let mut trainer =
+        ScheduledLSTMTrainer::new(network, MSELoss, optimizer).with_config(training_config);
+
     trainer.train(&train_data, None);
-    
+
     // Should complete successfully with early stopping
     let final_metrics = trainer.get_latest_metrics().unwrap();
-    assert!(final_metrics.epoch >= 0, "Scheduled trainer should support early stopping");
+    assert!(
+        final_metrics.epoch >= 0,
+        "Scheduled trainer should support early stopping"
+    );
 }
 
 /// Test early stopping with batch trainer
 #[test]
 fn test_early_stopping_with_batch_trainer() {
     let network = LSTMNetwork::new(1, 4, 1);
-    
+
     let train_data = vec![
         (vec![arr2(&[[1.0]])], vec![arr2(&[[0.5]])]),
         (vec![arr2(&[[0.5]])], vec![arr2(&[[0.25]])]),
     ];
-    
+
     let early_stopping_config = EarlyStoppingConfig {
         patience: 3,
         min_delta: 1e-4,
         restore_best_weights: true,
         monitor: EarlyStoppingMetric::TrainLoss,
     };
-    
+
     let training_config = TrainingConfig {
         epochs: 30,
         print_every: 10,
@@ -246,13 +257,15 @@ fn test_early_stopping_with_batch_trainer() {
         log_lr_changes: false,
         early_stopping: Some(early_stopping_config),
     };
-    
-    let mut trainer = create_adam_batch_trainer(network, 0.01)
-        .with_config(training_config);
-    
+
+    let mut trainer = create_adam_batch_trainer(network, 0.01).with_config(training_config);
+
     trainer.train(&train_data, None, 2); // Batch size 2
-    
+
     // Should complete successfully with early stopping
     let final_metrics = trainer.get_latest_metrics().unwrap();
-    assert!(final_metrics.epoch >= 0, "Batch trainer should support early stopping");
+    assert!(
+        final_metrics.epoch >= 0,
+        "Batch trainer should support early stopping"
+    );
 }

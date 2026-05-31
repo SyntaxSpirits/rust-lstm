@@ -1,9 +1,17 @@
-use ndarray::{Array2, arr2};
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
+use ndarray::{arr2, Array2};
 use rust_lstm::{
-    LSTMNetwork, LayerDropoutConfig,
-    training::{LSTMTrainer, TrainingConfig},
-    optimizers::Adam,
     loss::MSELoss,
+    optimizers::Adam,
+    training::{LSTMTrainer, TrainingConfig},
+    LSTMNetwork, LayerDropoutConfig,
 };
 
 fn main() {
@@ -41,16 +49,24 @@ fn demonstrate_basic_dropout() {
     println!("Training mode:");
     let (hy_train, _) = network.forward(&input, &hx, &cx);
     println!("  Output shape: {:?}", hy_train.shape());
-    println!("  Sample output values: [{:.4}, {:.4}, {:.4}]", 
-             hy_train[[0, 0]], hy_train[[1, 0]], hy_train[[2, 0]]);
+    println!(
+        "  Sample output values: [{:.4}, {:.4}, {:.4}]",
+        hy_train[[0, 0]],
+        hy_train[[1, 0]],
+        hy_train[[2, 0]]
+    );
 
     // Test evaluation mode
     network.eval();
     println!("Evaluation mode:");
     let (hy_eval, _) = network.forward(&input, &hx, &cx);
     println!("  Output shape: {:?}", hy_eval.shape());
-    println!("  Sample output values: [{:.4}, {:.4}, {:.4}]", 
-             hy_eval[[0, 0]], hy_eval[[1, 0]], hy_eval[[2, 0]]);
+    println!(
+        "  Sample output values: [{:.4}, {:.4}, {:.4}]",
+        hy_eval[[0, 0]],
+        hy_eval[[1, 0]],
+        hy_eval[[2, 0]]
+    );
 
     println!();
 }
@@ -68,7 +84,7 @@ fn demonstrate_variational_dropout() {
         .with_input_dropout(0.25, true)
         .with_recurrent_dropout(0.2, true);
 
-    let sequence = vec![
+    let sequence = [
         arr2(&[[1.0], [0.0], [0.5]]),
         arr2(&[[0.5], [1.0], [0.0]]),
         arr2(&[[-0.2], [0.8], [0.3]]),
@@ -76,7 +92,7 @@ fn demonstrate_variational_dropout() {
 
     network.train();
     println!("Processing sequence with variational dropout:");
-    
+
     let mut hx = Array2::zeros((hidden_size, 1));
     let mut cx = Array2::zeros((hidden_size, 1));
 
@@ -101,21 +117,17 @@ fn demonstrate_layer_specific_dropout() {
     // Configure different dropout for each layer
     let layer_configs = vec![
         // Layer 0: Input layer with moderate input dropout
-        LayerDropoutConfig::new()
-            .with_input_dropout(0.1, false),
-        
+        LayerDropoutConfig::new().with_input_dropout(0.1, false),
         // Layer 1: Hidden layer with recurrent dropout and zoneout
         LayerDropoutConfig::new()
             .with_recurrent_dropout(0.2, true)
             .with_zoneout(0.05, 0.1),
-        
         // Layer 2: Output layer with light output dropout
-        LayerDropoutConfig::new()
-            .with_output_dropout(0.1),
+        LayerDropoutConfig::new().with_output_dropout(0.1),
     ];
 
-    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_layer_dropout(layer_configs);
+    let mut network =
+        LSTMNetwork::new(input_size, hidden_size, num_layers).with_layer_dropout(layer_configs);
 
     let input = arr2(&[[0.5], [1.0], [-0.3]]);
     let hx = Array2::zeros((hidden_size, 1));
@@ -123,10 +135,12 @@ fn demonstrate_layer_specific_dropout() {
 
     network.train();
     let (hy, _) = network.forward(&input, &hx, &cx);
-    
+
     println!("Network with layer-specific dropout:");
-    println!("  Input size: {}, Hidden size: {}, Layers: {}", 
-             input_size, hidden_size, num_layers);
+    println!(
+        "  Input size: {}, Hidden size: {}, Layers: {}",
+        input_size, hidden_size, num_layers
+    );
     println!("  Output: {:?}", hy.shape());
     println!("  Output mean: {:.4}", hy.mean().unwrap());
 
@@ -142,10 +156,9 @@ fn demonstrate_zoneout() {
     let num_layers = 1;
 
     // Create network with zoneout
-    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_zoneout(0.1, 0.15); // 10% cell zoneout, 15% hidden zoneout
+    let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers).with_zoneout(0.1, 0.15); // 10% cell zoneout, 15% hidden zoneout
 
-    let sequence = vec![
+    let sequence = [
         arr2(&[[1.0], [0.0]]),
         arr2(&[[0.0], [1.0]]),
         arr2(&[[0.5], [0.5]]),
@@ -159,8 +172,12 @@ fn demonstrate_zoneout() {
 
     for (i, input) in sequence.iter().enumerate() {
         let (new_hx, new_cx) = network.forward(input, &hx, &cx);
-        println!("  Step {}: Hidden state norm = {:.4}, Cell state norm = {:.4}", 
-                 i, (new_hx.mapv(|x| x * x).sum()).sqrt(), (new_cx.mapv(|x| x * x).sum()).sqrt());
+        println!(
+            "  Step {}: Hidden state norm = {:.4}, Cell state norm = {:.4}",
+            i,
+            (new_hx.mapv(|x| x * x).sum()).sqrt(),
+            (new_cx.mapv(|x| x * x).sum()).sqrt()
+        );
         hx = new_hx;
         cx = new_cx;
     }
@@ -178,10 +195,10 @@ fn demonstrate_training_with_dropout() {
 
     // Create network with comprehensive dropout
     let network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-        .with_input_dropout(0.2, true)       // Variational input dropout
-        .with_recurrent_dropout(0.3, true)   // Variational recurrent dropout
-        .with_output_dropout(0.1)            // Standard output dropout
-        .with_zoneout(0.05, 0.1);           // Light zoneout
+        .with_input_dropout(0.2, true) // Variational input dropout
+        .with_recurrent_dropout(0.3, true) // Variational recurrent dropout
+        .with_output_dropout(0.1) // Standard output dropout
+        .with_zoneout(0.05, 0.1); // Light zoneout
 
     // Create trainer
     let loss_function = MSELoss;
@@ -202,8 +219,12 @@ fn demonstrate_training_with_dropout() {
     let train_data = generate_sine_wave_data(10, 5);
 
     println!("Training LSTM with dropout regularization...");
-    println!("Dataset: {} sequences of length {}", train_data.len(), train_data[0].0.len());
-    
+    println!(
+        "Dataset: {} sequences of length {}",
+        train_data.len(),
+        train_data[0].0.len()
+    );
+
     // Train the model
     trainer.train(&train_data, None);
 
@@ -217,37 +238,51 @@ fn demonstrate_training_with_dropout() {
     println!("\nMaking predictions:");
     let predictions = trainer.predict(&test_input);
     for (i, pred) in predictions.iter().enumerate() {
-        println!("  Prediction {}: [{:.4}, {:.4}, {:.4}, {:.4}]", 
-                 i, pred[[0, 0]], pred[[1, 0]], pred[[2, 0]], pred[[3, 0]]);
+        println!(
+            "  Prediction {}: [{:.4}, {:.4}, {:.4}, {:.4}]",
+            i,
+            pred[[0, 0]],
+            pred[[1, 0]],
+            pred[[2, 0]],
+            pred[[3, 0]]
+        );
     }
 
     println!("\nTraining completed with dropout regularization!");
 }
 
-fn generate_sine_wave_data(num_sequences: usize, sequence_length: usize) -> Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)> {
+fn generate_sine_wave_data(
+    num_sequences: usize,
+    sequence_length: usize,
+) -> Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)> {
     let mut data = Vec::new();
-    
+
     for seq_idx in 0..num_sequences {
         let mut inputs = Vec::new();
         let mut targets = Vec::new();
-        
+
         let phase = seq_idx as f64 * 0.1;
-        
+
         for t in 0..sequence_length {
             let time = t as f64 * 0.1 + phase;
             let input_val = (time).sin();
             let target_val = (time + 0.1).sin();
-            
+
             // Create 2D input and 4D target (matching network architecture)
             let input = arr2(&[[input_val], [input_val * 0.5]]);
-            let target = arr2(&[[target_val], [target_val * 0.8], [target_val * 0.6], [target_val * 0.3]]);
-            
+            let target = arr2(&[
+                [target_val],
+                [target_val * 0.8],
+                [target_val * 0.6],
+                [target_val * 0.3],
+            ]);
+
             inputs.push(input);
             targets.push(target);
         }
-        
+
         data.push((inputs, targets));
     }
-    
+
     data
-} 
+}

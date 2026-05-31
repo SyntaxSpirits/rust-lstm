@@ -1,8 +1,16 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 use ndarray::Array2;
 use rust_lstm::{
-    LSTMNetwork, 
-    persistence::{ModelPersistence, PersistentModel, ModelMetadata},
+    persistence::{ModelMetadata, ModelPersistence, PersistentModel},
     training::create_basic_trainer,
+    LSTMNetwork,
 };
 use tempfile::tempdir;
 
@@ -35,7 +43,7 @@ fn test_network_save_load_json() {
 
     // Create a simple network
     let mut network = LSTMNetwork::new(3, 4, 2);
-    
+
     // Test forward pass to ensure network works
     let input = Array2::ones((3, 1));
     let hx = Array2::zeros((4, 1));
@@ -61,7 +69,7 @@ fn test_network_save_load_json() {
 
     // Load the network
     let (mut loaded_network, loaded_metadata) = LSTMNetwork::load(&file_path).unwrap();
-    
+
     // Verify metadata
     assert_eq!(loaded_metadata.model_name, metadata.model_name);
     assert_eq!(loaded_metadata.input_size, metadata.input_size);
@@ -76,10 +84,13 @@ fn test_network_save_load_json() {
     // Test that loaded network produces same output (within numerical tolerance)
     let (output_after, _) = loaded_network.forward(&input, &hx, &cx);
     assert_eq!(output_before.shape(), output_after.shape());
-    
+
     // Check if outputs are approximately equal (they should be identical for same weights)
     let diff = (&output_before - &output_after).mapv(|x| x.abs()).sum();
-    assert!(diff < 1e-10, "Loaded network output differs significantly from original");
+    assert!(
+        diff < 1e-10,
+        "Loaded network output differs significantly from original"
+    );
 }
 
 #[test]
@@ -91,7 +102,7 @@ fn test_network_save_load_binary() {
     let mut network = LSTMNetwork::new(2, 3, 1)
         .with_input_dropout(0.1, false)
         .with_output_dropout(0.1);
-    
+
     // Test forward pass
     let input = Array2::ones((2, 1));
     let hx = Array2::zeros((3, 1));
@@ -118,7 +129,7 @@ fn test_network_save_load_binary() {
 
     // Load the network
     let (mut loaded_network, loaded_metadata) = LSTMNetwork::load(&file_path).unwrap();
-    
+
     // Verify metadata
     assert_eq!(loaded_metadata.model_name, metadata.model_name);
     assert_eq!(loaded_metadata.total_epochs, metadata.total_epochs);
@@ -133,15 +144,18 @@ fn test_network_save_load_binary() {
     loaded_network.eval();
     let (output_after, _) = loaded_network.forward(&input, &hx, &cx);
     assert_eq!(output_before.shape(), output_after.shape());
-    
+
     let diff = (&output_before - &output_after).mapv(|x| x.abs()).sum();
-    assert!(diff < 1e-10, "Loaded network output differs significantly from original");
+    assert!(
+        diff < 1e-10,
+        "Loaded network output differs significantly from original"
+    );
 }
 
 #[test]
 fn test_model_persistence_create_saved_model() {
     let network = LSTMNetwork::new(5, 10, 3);
-    
+
     let saved_model = ModelPersistence::create_saved_model(
         &network,
         "test_create_model".to_string(),
@@ -206,15 +220,15 @@ fn test_persistence_with_trained_model() {
     let (mut loaded_network, loaded_metadata) = LSTMNetwork::load(&file_path).unwrap();
     assert_eq!(loaded_metadata.model_name, "trained_test_model");
     assert_eq!(loaded_metadata.total_epochs, 2);
-    
+
     // Test that loaded model can make predictions
-    let test_input = vec![Array2::ones((1, 1))];
+    let test_input = [Array2::ones((1, 1))];
     loaded_network.eval();
-    
+
     let hx = Array2::zeros((2, 1));
     let cx = Array2::zeros((2, 1));
     let (output, _) = loaded_network.forward(&test_input[0], &hx, &cx);
-    
+
     assert_eq!(output.shape(), &[2, 1]);
 }
 
@@ -222,7 +236,7 @@ fn test_persistence_with_trained_model() {
 fn test_file_extension_detection() {
     let dir = tempdir().unwrap();
     let network = LSTMNetwork::new(2, 3, 1);
-    
+
     let metadata = ModelMetadata {
         model_name: "extension_test".to_string(),
         version: "0.2.0".to_string(),
@@ -282,4 +296,4 @@ fn test_error_handling() {
 
     let result = network.save("/invalid/path/that/does/not/exist.json", metadata);
     assert!(result.is_err());
-} 
+}

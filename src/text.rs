@@ -2,11 +2,11 @@
 //!
 //! Provides vocabulary management, character embeddings, and sampling strategies.
 
-use std::collections::HashMap;
-use ndarray::{Array1, Array2};
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
 use crate::optimizers::Optimizer;
+use ndarray::{Array1, Array2};
+use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
+use std::collections::HashMap;
 
 /// Character vocabulary for text generation tasks.
 ///
@@ -21,36 +21,39 @@ pub struct TextVocabulary {
 impl TextVocabulary {
     /// Create vocabulary from text, extracting unique characters.
     pub fn from_text(text: &str) -> Self {
-        let mut chars: Vec<char> = text.chars().collect::<std::collections::HashSet<_>>()
-            .into_iter().collect();
+        let mut chars: Vec<char> = text
+            .chars()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         chars.sort();
 
         let vocab_size = chars.len();
-        let char_to_idx: HashMap<char, usize> = chars.iter()
-            .enumerate()
-            .map(|(i, &c)| (c, i))
-            .collect();
-        let idx_to_char: HashMap<usize, char> = chars.iter()
-            .enumerate()
-            .map(|(i, &c)| (i, c))
-            .collect();
+        let char_to_idx: HashMap<char, usize> =
+            chars.iter().enumerate().map(|(i, &c)| (c, i)).collect();
+        let idx_to_char: HashMap<usize, char> =
+            chars.iter().enumerate().map(|(i, &c)| (i, c)).collect();
 
-        Self { char_to_idx, idx_to_char, vocab_size }
+        Self {
+            char_to_idx,
+            idx_to_char,
+            vocab_size,
+        }
     }
 
     /// Create vocabulary from explicit character list.
     pub fn from_chars(chars: &[char]) -> Self {
         let vocab_size = chars.len();
-        let char_to_idx: HashMap<char, usize> = chars.iter()
-            .enumerate()
-            .map(|(i, &c)| (c, i))
-            .collect();
-        let idx_to_char: HashMap<usize, char> = chars.iter()
-            .enumerate()
-            .map(|(i, &c)| (i, c))
-            .collect();
+        let char_to_idx: HashMap<char, usize> =
+            chars.iter().enumerate().map(|(i, &c)| (c, i)).collect();
+        let idx_to_char: HashMap<usize, char> =
+            chars.iter().enumerate().map(|(i, &c)| (i, c)).collect();
 
-        Self { char_to_idx, idx_to_char, vocab_size }
+        Self {
+            char_to_idx,
+            idx_to_char,
+            vocab_size,
+        }
     }
 
     /// Get index for a character.
@@ -89,7 +92,8 @@ impl TextVocabulary {
 
     /// Decode indices to string.
     pub fn decode(&self, indices: &[usize]) -> String {
-        indices.iter()
+        indices
+            .iter()
             .filter_map(|&idx| self.index_to_char(idx))
             .collect()
     }
@@ -159,7 +163,12 @@ impl CharacterEmbedding {
 
     /// Lookup single character embedding.
     pub fn lookup(&self, char_idx: usize) -> Array1<f64> {
-        assert!(char_idx < self.vocab_size, "Index {} out of vocabulary size {}", char_idx, self.vocab_size);
+        assert!(
+            char_idx < self.vocab_size,
+            "Index {} out of vocabulary size {}",
+            char_idx,
+            self.vocab_size
+        );
         self.weight.row(char_idx).to_owned()
     }
 
@@ -172,7 +181,12 @@ impl CharacterEmbedding {
         let mut output = Array2::zeros((seq_len, self.embed_dim));
 
         for (i, &idx) in char_indices.iter().enumerate() {
-            assert!(idx < self.vocab_size, "Index {} out of vocabulary size {}", idx, self.vocab_size);
+            assert!(
+                idx < self.vocab_size,
+                "Index {} out of vocabulary size {}",
+                idx,
+                self.vocab_size
+            );
             output.row_mut(i).assign(&self.weight.row(idx));
         }
 
@@ -182,7 +196,10 @@ impl CharacterEmbedding {
     /// Backward pass - compute gradients.
     /// grad_output shape: (seq_len, embed_dim)
     pub fn backward(&self, grad_output: &Array2<f64>) -> EmbeddingGradients {
-        let indices = self.input_cache.as_ref().expect("No cached input for backward pass");
+        let indices = self
+            .input_cache
+            .as_ref()
+            .expect("No cached input for backward pass");
 
         let mut weight_grad = Array2::zeros((self.vocab_size, self.embed_dim));
 
@@ -192,12 +209,23 @@ impl CharacterEmbedding {
             }
         }
 
-        EmbeddingGradients { weight: weight_grad }
+        EmbeddingGradients {
+            weight: weight_grad,
+        }
     }
 
     /// Update parameters with optimizer.
-    pub fn update_parameters<O: Optimizer>(&mut self, gradients: &EmbeddingGradients, optimizer: &mut O, prefix: &str) {
-        optimizer.update(&format!("{}_weight", prefix), &mut self.weight, &gradients.weight);
+    pub fn update_parameters<O: Optimizer>(
+        &mut self,
+        gradients: &EmbeddingGradients,
+        optimizer: &mut O,
+        prefix: &str,
+    ) {
+        optimizer.update(
+            &format!("{}_weight", prefix),
+            &mut self.weight,
+            &gradients.weight,
+        );
     }
 
     /// Get number of parameters.
@@ -315,7 +343,8 @@ pub fn sample_nucleus(logits: &Array1<f64>, p: f64, temperature: f64) -> usize {
 
 /// Get argmax (greedy decoding).
 pub fn argmax(logits: &Array1<f64>) -> usize {
-    logits.iter()
+    logits
+        .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(idx, _)| idx)

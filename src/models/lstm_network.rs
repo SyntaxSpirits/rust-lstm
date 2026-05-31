@@ -1,6 +1,6 @@
-use ndarray::Array2;
-use crate::layers::lstm_cell::{LSTMCell, LSTMCellGradients, LSTMCellCache, LSTMCellBatchCache};
+use crate::layers::lstm_cell::{LSTMCell, LSTMCellBatchCache, LSTMCellCache, LSTMCellGradients};
 use crate::optimizers::Optimizer;
+use ndarray::Array2;
 
 /// Holds cached values for all layers during network forward pass
 #[derive(Clone)]
@@ -16,8 +16,8 @@ pub struct LSTMNetworkBatchCache {
 }
 
 /// Multi-layer LSTM network for sequence modeling with dropout support
-/// 
-/// Stacks multiple LSTM cells where the output of layer i becomes 
+///
+/// Stacks multiple LSTM cells where the output of layer i becomes
 /// the input to layer i+1. Supports both inference and training with
 /// configurable dropout regularization.
 #[derive(Clone)]
@@ -31,8 +31,8 @@ pub struct LSTMNetwork {
 
 impl LSTMNetwork {
     /// Creates a new multi-layer LSTM network
-    /// 
-    /// First layer accepts `input_size` dimensions, subsequent layers 
+    ///
+    /// First layer accepts `input_size` dimensions, subsequent layers
     /// accept `hidden_size` dimensions from the previous layer.
     pub fn new(input_size: usize, hidden_size: usize, num_layers: usize) -> Self {
         let mut cells = Vec::new();
@@ -41,8 +41,8 @@ impl LSTMNetwork {
             let layer_input_size = if i == 0 { input_size } else { hidden_size };
             cells.push(LSTMCell::new(layer_input_size, hidden_size));
         }
-        
-        LSTMNetwork { 
+
+        LSTMNetwork {
             cells,
             input_size,
             hidden_size,
@@ -60,7 +60,9 @@ impl LSTMNetwork {
 
     pub fn with_recurrent_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
         for cell in &mut self.cells {
-            *cell = cell.clone().with_recurrent_dropout(dropout_rate, variational);
+            *cell = cell
+                .clone()
+                .with_recurrent_dropout(dropout_rate, variational);
         }
         self
     }
@@ -76,7 +78,9 @@ impl LSTMNetwork {
 
     pub fn with_zoneout(mut self, cell_zoneout_rate: f64, hidden_zoneout_rate: f64) -> Self {
         for cell in &mut self.cells {
-            *cell = cell.clone().with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
+            *cell = cell
+                .clone()
+                .with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
         }
         self
     }
@@ -85,7 +89,7 @@ impl LSTMNetwork {
         for (i, config) in layer_configs.into_iter().enumerate() {
             if i < self.cells.len() {
                 let mut cell = self.cells[i].clone();
-                
+
                 if let Some((rate, variational)) = config.input_dropout {
                     cell = cell.with_input_dropout(rate, variational);
                 }
@@ -98,7 +102,7 @@ impl LSTMNetwork {
                 if let Some((cell_rate, hidden_rate)) = config.zoneout {
                     cell = cell.with_zoneout(cell_rate, hidden_rate);
                 }
-                
+
                 self.cells[i] = cell;
             }
         }
@@ -120,7 +124,12 @@ impl LSTMNetwork {
     }
 
     /// Creates a network from existing cells (used for deserialization)
-    pub fn from_cells(cells: Vec<LSTMCell>, input_size: usize, hidden_size: usize, num_layers: usize) -> Self {
+    pub fn from_cells(
+        cells: Vec<LSTMCell>,
+        input_size: usize,
+        hidden_size: usize,
+        num_layers: usize,
+    ) -> Self {
         LSTMNetwork {
             cells,
             input_size,
@@ -141,20 +150,31 @@ impl LSTMNetwork {
     }
 
     /// Forward pass for inference (no caching)
-    pub fn forward(&mut self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>) {
+    pub fn forward(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+        cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>) {
         let (hy, cy, _) = self.forward_with_cache(input, hx, cx);
         (hy, cy)
     }
 
     /// Forward pass with caching for training
-    pub fn forward_with_cache(&mut self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>, LSTMNetworkCache) {
+    pub fn forward_with_cache(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+        cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>, LSTMNetworkCache) {
         let mut current_input = input.clone();
         let mut current_hx = hx.clone();
         let mut current_cx = cx.clone();
         let mut cell_caches = Vec::new();
 
         for cell in &mut self.cells {
-            let (new_hx, new_cx, cache) = cell.forward_with_cache(&current_input, &current_hx, &current_cx);
+            let (new_hx, new_cx, cache) =
+                cell.forward_with_cache(&current_input, &current_hx, &current_cx);
             cell_caches.push(cache);
 
             current_input = new_hx.clone();
@@ -167,18 +187,24 @@ impl LSTMNetwork {
     }
 
     /// Backward pass through all layers (reverse order)
-    /// 
+    ///
     /// Implements backpropagation through the multi-layer stack.
     /// Returns gradients for each layer and input gradients.
-    pub fn backward(&self, dhy: &Array2<f64>, dcy: &Array2<f64>, cache: &LSTMNetworkCache) -> (Vec<LSTMCellGradients>, Array2<f64>) {
+    pub fn backward(
+        &self,
+        dhy: &Array2<f64>,
+        dcy: &Array2<f64>,
+        cache: &LSTMNetworkCache,
+    ) -> (Vec<LSTMCellGradients>, Array2<f64>) {
         let mut gradients = Vec::new();
         let mut current_dhy = dhy.clone();
         let mut current_dcy = dcy.clone();
 
         for (i, cell) in self.cells.iter().enumerate().rev() {
             let cell_cache = &cache.cell_caches[i];
-            let (cell_gradients, dx, _dhx_prev, dcx_prev) = cell.backward(&current_dhy, &current_dcy, cell_cache);
-            
+            let (cell_gradients, dx, _dhx_prev, dcx_prev) =
+                cell.backward(&current_dhy, &current_dcy, cell_cache);
+
             gradients.push(cell_gradients);
 
             if i > 0 {
@@ -188,7 +214,7 @@ impl LSTMNetwork {
         }
 
         gradients.reverse();
-        
+
         let dx_input = if !gradients.is_empty() {
             let first_cell = &self.cells[0];
             let first_cache = &cache.cell_caches[0];
@@ -202,7 +228,11 @@ impl LSTMNetwork {
     }
 
     /// Update parameters for all layers using computed gradients
-    pub fn update_parameters<O: Optimizer>(&mut self, gradients: &[LSTMCellGradients], optimizer: &mut O) {
+    pub fn update_parameters<O: Optimizer>(
+        &mut self,
+        gradients: &[LSTMCellGradients],
+        optimizer: &mut O,
+    ) {
         for (i, (cell, cell_gradients)) in self.cells.iter_mut().zip(gradients.iter()).enumerate() {
             let prefix = format!("layer_{}", i);
             cell.update_parameters(cell_gradients, optimizer, &prefix);
@@ -211,14 +241,20 @@ impl LSTMNetwork {
 
     /// Initialize zero gradients for all layers
     pub fn zero_gradients(&self) -> Vec<LSTMCellGradients> {
-        self.cells.iter().map(|cell| cell.zero_gradients()).collect()
+        self.cells
+            .iter()
+            .map(|cell| cell.zero_gradients())
+            .collect()
     }
 
     /// Process an entire sequence with caching for training
-    /// 
+    ///
     /// Maintains hidden/cell state across time steps within the sequence.
     /// Returns outputs and caches for each time step.
-    pub fn forward_sequence_with_cache(&mut self, sequence: &[Array2<f64>]) -> (Vec<(Array2<f64>, Array2<f64>)>, Vec<LSTMNetworkCache>) {
+    pub fn forward_sequence_with_cache(
+        &mut self,
+        sequence: &[Array2<f64>],
+    ) -> (Vec<(Array2<f64>, Array2<f64>)>, Vec<LSTMNetworkCache>) {
         let mut outputs = Vec::new();
         let mut caches = Vec::new();
         let mut hx = Array2::zeros((self.hidden_size, 1));
@@ -236,24 +272,31 @@ impl LSTMNetwork {
     }
 
     /// Process multiple sequences in a batch
-    /// 
+    ///
     /// # Arguments
     /// * `batch_sequences` - Vector of sequences, each sequence is a Vec<Array2<f64>>
     ///   where each Array2 has shape (input_size, 1) for single sequences
-    /// 
+    ///
     /// # Returns
     /// * Vector of sequence outputs, where each sequence output is Vec<(Array2<f64>, Array2<f64>)>
-    pub fn forward_batch_sequences(&mut self, batch_sequences: &[Vec<Array2<f64>>]) -> Vec<Vec<(Array2<f64>, Array2<f64>)>> {
+    pub fn forward_batch_sequences(
+        &mut self,
+        batch_sequences: &[Vec<Array2<f64>>],
+    ) -> Vec<Vec<(Array2<f64>, Array2<f64>)>> {
         // Find the maximum sequence length for padding
-        let max_seq_len = batch_sequences.iter().map(|seq| seq.len()).max().unwrap_or(0);
+        let max_seq_len = batch_sequences
+            .iter()
+            .map(|seq| seq.len())
+            .max()
+            .unwrap_or(0);
         let batch_size = batch_sequences.len();
-        
+
         if batch_size == 0 || max_seq_len == 0 {
             return Vec::new();
         }
 
         let mut batch_outputs = vec![Vec::new(); batch_size];
-        
+
         // Initialize batch hidden and cell states
         let mut batch_hx = Array2::zeros((self.hidden_size, batch_size));
         let mut batch_cx = Array2::zeros((self.hidden_size, batch_size));
@@ -263,11 +306,13 @@ impl LSTMNetwork {
             // Prepare batch input for current time step
             let mut batch_input = Array2::zeros((self.input_size, batch_size));
             let mut active_sequences = Vec::new();
-            
+
             for (batch_idx, sequence) in batch_sequences.iter().enumerate() {
                 if t < sequence.len() {
                     // Copy input for this sequence at time step t
-                    batch_input.column_mut(batch_idx).assign(&sequence[t].column(0));
+                    batch_input
+                        .column_mut(batch_idx)
+                        .assign(&sequence[t].column(0));
                     active_sequences.push(batch_idx);
                 }
             }
@@ -277,16 +322,23 @@ impl LSTMNetwork {
             }
 
             // Forward pass for this time step across the batch
-            let (new_batch_hx, new_batch_cx) = self.forward_batch(&batch_input, &batch_hx, &batch_cx);
-            
+            let (new_batch_hx, new_batch_cx) =
+                self.forward_batch(&batch_input, &batch_hx, &batch_cx);
+
             // Update states and collect outputs for active sequences
             batch_hx = new_batch_hx.clone();
             batch_cx = new_batch_cx.clone();
 
             // Store outputs for each active sequence
             for &batch_idx in &active_sequences {
-                let hy = new_batch_hx.column(batch_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let cy = new_batch_cx.column(batch_idx).to_owned().insert_axis(ndarray::Axis(1));
+                let hy = new_batch_hx
+                    .column(batch_idx)
+                    .to_owned()
+                    .insert_axis(ndarray::Axis(1));
+                let cy = new_batch_cx
+                    .column(batch_idx)
+                    .to_owned()
+                    .insert_axis(ndarray::Axis(1));
                 batch_outputs[batch_idx].push((hy, cy));
             }
         }
@@ -295,15 +347,20 @@ impl LSTMNetwork {
     }
 
     /// Batch forward pass for single time step across multiple sequences
-    /// 
+    ///
     /// # Arguments
     /// * `batch_input` - Input tensor of shape (input_size, batch_size)
     /// * `batch_hx` - Hidden states tensor of shape (hidden_size, batch_size)  
     /// * `batch_cx` - Cell states tensor of shape (hidden_size, batch_size)
-    /// 
+    ///
     /// # Returns
     /// * Tuple of (new_hidden_states, new_cell_states) with same batch dimensions
-    pub fn forward_batch(&mut self, batch_input: &Array2<f64>, batch_hx: &Array2<f64>, batch_cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>) {
+    pub fn forward_batch(
+        &mut self,
+        batch_input: &Array2<f64>,
+        batch_hx: &Array2<f64>,
+        batch_cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>) {
         let mut current_input = batch_input.clone();
         let mut current_hx = batch_hx.clone();
         let mut current_cx = batch_cx.clone();
@@ -320,9 +377,14 @@ impl LSTMNetwork {
     }
 
     /// Batch forward pass with caching for training
-    /// 
+    ///
     /// Similar to forward_batch but caches intermediate values needed for backpropagation
-    pub fn forward_batch_with_cache(&mut self, batch_input: &Array2<f64>, batch_hx: &Array2<f64>, batch_cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>, LSTMNetworkBatchCache) {
+    pub fn forward_batch_with_cache(
+        &mut self,
+        batch_input: &Array2<f64>,
+        batch_hx: &Array2<f64>,
+        batch_cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>, LSTMNetworkBatchCache) {
         let mut current_input = batch_input.clone();
         let mut current_hx = batch_hx.clone();
         let mut current_cx = batch_cx.clone();
@@ -330,7 +392,8 @@ impl LSTMNetwork {
 
         // Process through each layer with caching
         for cell in &mut self.cells {
-            let (new_hx, new_cx, cache) = cell.forward_batch_with_cache(&current_input, &current_hx, &current_cx);
+            let (new_hx, new_cx, cache) =
+                cell.forward_batch_with_cache(&current_input, &current_hx, &current_cx);
             cell_caches.push(cache);
 
             current_input = new_hx.clone();
@@ -338,18 +401,23 @@ impl LSTMNetwork {
             current_cx = new_cx;
         }
 
-        let network_cache = LSTMNetworkBatchCache { 
+        let network_cache = LSTMNetworkBatchCache {
             cell_caches,
             batch_size: batch_input.ncols(),
         };
-        
+
         (current_hx, current_cx, network_cache)
     }
 
     /// Batch backward pass for training
-    /// 
+    ///
     /// Computes gradients for an entire batch simultaneously
-    pub fn backward_batch(&self, dhy: &Array2<f64>, dcy: &Array2<f64>, cache: &LSTMNetworkBatchCache) -> (Vec<LSTMCellGradients>, Array2<f64>) {
+    pub fn backward_batch(
+        &self,
+        dhy: &Array2<f64>,
+        dcy: &Array2<f64>,
+        cache: &LSTMNetworkBatchCache,
+    ) -> (Vec<LSTMCellGradients>, Array2<f64>) {
         let mut gradients = Vec::new();
         let mut current_dhy = dhy.clone();
         let mut current_dcy = dcy.clone();
@@ -357,8 +425,9 @@ impl LSTMNetwork {
         // Backward through layers in reverse order
         for (i, cell) in self.cells.iter().enumerate().rev() {
             let cell_cache = &cache.cell_caches[i];
-            let (cell_gradients, dx, _dhx_prev, dcx_prev) = cell.backward_batch(&current_dhy, &current_dcy, cell_cache);
-            
+            let (cell_gradients, dx, _dhx_prev, dcx_prev) =
+                cell.backward_batch(&current_dhy, &current_dcy, cell_cache);
+
             gradients.push(cell_gradients);
 
             if i > 0 {
@@ -368,7 +437,7 @@ impl LSTMNetwork {
         }
 
         gradients.reverse();
-        
+
         let dx_input = if !gradients.is_empty() {
             let first_cell = &self.cells[0];
             let first_cache = &cache.cell_caches[0];
@@ -385,10 +454,16 @@ impl LSTMNetwork {
 /// Configuration for layer-specific dropout settings
 #[derive(Clone, Debug)]
 pub struct LayerDropoutConfig {
-    pub input_dropout: Option<(f64, bool)>,     // (rate, variational)
+    pub input_dropout: Option<(f64, bool)>, // (rate, variational)
     pub recurrent_dropout: Option<(f64, bool)>, // (rate, variational)
-    pub output_dropout: Option<f64>,            // rate
-    pub zoneout: Option<(f64, f64)>,           // (cell_rate, hidden_rate)
+    pub output_dropout: Option<f64>,        // rate
+    pub zoneout: Option<(f64, f64)>,        // (cell_rate, hidden_rate)
+}
+
+impl Default for LayerDropoutConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LayerDropoutConfig {
@@ -450,8 +525,8 @@ mod tests {
         let hidden_size = 2;
         let num_layers = 2;
         let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-            .with_input_dropout(0.2, true)  // Variational input dropout
-            .with_recurrent_dropout(0.3, true)  // Variational recurrent dropout
+            .with_input_dropout(0.2, true) // Variational input dropout
+            .with_recurrent_dropout(0.3, true) // Variational recurrent dropout
             .with_output_dropout(0.1)
             .with_zoneout(0.1, 0.1);
 
@@ -488,8 +563,8 @@ mod tests {
                 .with_zoneout(0.1, 0.1),
         ];
 
-        let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers)
-            .with_layer_dropout(layer_configs);
+        let mut network =
+            LSTMNetwork::new(input_size, hidden_size, num_layers).with_layer_dropout(layer_configs);
 
         let input = arr2(&[[0.5], [0.1], [-0.3]]);
         let hx = arr2(&[[0.0], [0.0]]);

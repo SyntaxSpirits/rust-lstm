@@ -1,9 +1,9 @@
 use ndarray::Array2;
-use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
 
 /// Dropout layer for regularization
-/// 
+///
 /// Implements different types of dropout:
 /// - Standard dropout: randomly sets elements to zero
 /// - Variational dropout: uses same mask across time steps (for RNNs)
@@ -18,9 +18,11 @@ pub struct Dropout {
 
 impl Dropout {
     pub fn new(dropout_rate: f64) -> Self {
-        assert!(dropout_rate >= 0.0 && dropout_rate <= 1.0, 
-                "Dropout rate must be between 0.0 and 1.0");
-        
+        assert!(
+            (0.0..=1.0).contains(&dropout_rate),
+            "Dropout rate must be between 0.0 and 1.0"
+        );
+
         Dropout {
             dropout_rate,
             is_training: true,
@@ -81,7 +83,7 @@ impl Dropout {
         }
 
         let keep_prob = 1.0 - self.dropout_rate;
-        
+
         if let Some(ref mask) = self.mask {
             grad_output * mask / keep_prob
         } else {
@@ -105,9 +107,9 @@ pub struct Zoneout {
 
 impl Zoneout {
     pub fn new(cell_zoneout_rate: f64, hidden_zoneout_rate: f64) -> Self {
-        assert!(cell_zoneout_rate >= 0.0 && cell_zoneout_rate <= 1.0);
-        assert!(hidden_zoneout_rate >= 0.0 && hidden_zoneout_rate <= 1.0);
-        
+        assert!((0.0..=1.0).contains(&cell_zoneout_rate));
+        assert!((0.0..=1.0).contains(&hidden_zoneout_rate));
+
         Zoneout {
             cell_zoneout_rate,
             hidden_zoneout_rate,
@@ -123,7 +125,11 @@ impl Zoneout {
         self.is_training = false;
     }
 
-    pub fn apply_cell_zoneout(&self, new_cell: &Array2<f64>, prev_cell: &Array2<f64>) -> Array2<f64> {
+    pub fn apply_cell_zoneout(
+        &self,
+        new_cell: &Array2<f64>,
+        prev_cell: &Array2<f64>,
+    ) -> Array2<f64> {
         if !self.is_training || self.cell_zoneout_rate == 0.0 {
             return new_cell.clone();
         }
@@ -131,14 +137,18 @@ impl Zoneout {
         let keep_prob = 1.0 - self.cell_zoneout_rate;
         let dist = Uniform::new(0.0, 1.0);
         let mask = Array2::random(new_cell.raw_dim(), dist);
-        
+
         let keep_new = mask.mapv(|x| if x < keep_prob { 1.0 } else { 0.0 });
         let keep_old = mask.mapv(|x| if x >= keep_prob { 1.0 } else { 0.0 });
-        
+
         &keep_new * new_cell + &keep_old * prev_cell
     }
 
-    pub fn apply_hidden_zoneout(&self, new_hidden: &Array2<f64>, prev_hidden: &Array2<f64>) -> Array2<f64> {
+    pub fn apply_hidden_zoneout(
+        &self,
+        new_hidden: &Array2<f64>,
+        prev_hidden: &Array2<f64>,
+    ) -> Array2<f64> {
         if !self.is_training || self.hidden_zoneout_rate == 0.0 {
             return new_hidden.clone();
         }
@@ -146,10 +156,10 @@ impl Zoneout {
         let keep_prob = 1.0 - self.hidden_zoneout_rate;
         let dist = Uniform::new(0.0, 1.0);
         let mask = Array2::random(new_hidden.raw_dim(), dist);
-        
+
         let keep_new = mask.mapv(|x| if x < keep_prob { 1.0 } else { 0.0 });
         let keep_old = mask.mapv(|x| if x >= keep_prob { 1.0 } else { 0.0 });
-        
+
         &keep_new * new_hidden + &keep_old * prev_hidden
     }
 }
@@ -177,7 +187,7 @@ mod tests {
         let mut dropout = Dropout::variational(0.3);
         let input1 = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let input2 = arr2(&[[2.0, 3.0], [4.0, 5.0]]);
-        
+
         dropout.train();
         let _output1 = dropout.forward(&input1);
         let _output2 = dropout.forward(&input2);
@@ -188,7 +198,7 @@ mod tests {
         let zoneout = Zoneout::new(0.2, 0.3);
         let new_state = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let prev_state = arr2(&[[0.5, 1.0], [1.5, 2.0]]);
-        
+
         let result = zoneout.apply_cell_zoneout(&new_state, &prev_state);
         assert_eq!(result.shape(), new_state.shape());
     }

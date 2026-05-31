@@ -1,6 +1,6 @@
-use ndarray::Array2;
-use crate::layers::lstm_cell::{LSTMCell, LSTMCellGradients, LSTMCellCache};
+use crate::layers::lstm_cell::{LSTMCell, LSTMCellCache, LSTMCellGradients};
 use crate::optimizers::Optimizer;
+use ndarray::Array2;
 
 /// Cache for bidirectional LSTM forward pass
 #[derive(Clone)]
@@ -31,13 +31,18 @@ pub struct BiLSTMNetwork {
 
 impl BiLSTMNetwork {
     /// Creates a new bidirectional LSTM network
-    /// 
+    ///
     /// # Arguments
     /// * `input_size` - Size of input features
     /// * `hidden_size` - Size of hidden state for each direction
     /// * `num_layers` - Number of bidirectional layers
     /// * `combine_mode` - How to combine forward and backward outputs
-    pub fn new(input_size: usize, hidden_size: usize, num_layers: usize, combine_mode: CombineMode) -> Self {
+    pub fn new(
+        input_size: usize,
+        hidden_size: usize,
+        num_layers: usize,
+        combine_mode: CombineMode,
+    ) -> Self {
         let mut forward_cells = Vec::new();
         let mut backward_cells = Vec::new();
 
@@ -54,8 +59,8 @@ impl BiLSTMNetwork {
             forward_cells.push(LSTMCell::new(layer_input_size, hidden_size));
             backward_cells.push(LSTMCell::new(layer_input_size, hidden_size));
         }
-        
-        BiLSTMNetwork { 
+
+        BiLSTMNetwork {
             forward_cells,
             backward_cells,
             input_size,
@@ -102,10 +107,14 @@ impl BiLSTMNetwork {
 
     pub fn with_recurrent_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
         for cell in &mut self.forward_cells {
-            *cell = cell.clone().with_recurrent_dropout(dropout_rate, variational);
+            *cell = cell
+                .clone()
+                .with_recurrent_dropout(dropout_rate, variational);
         }
         for cell in &mut self.backward_cells {
-            *cell = cell.clone().with_recurrent_dropout(dropout_rate, variational);
+            *cell = cell
+                .clone()
+                .with_recurrent_dropout(dropout_rate, variational);
         }
         self
     }
@@ -127,10 +136,14 @@ impl BiLSTMNetwork {
 
     pub fn with_zoneout(mut self, cell_zoneout_rate: f64, hidden_zoneout_rate: f64) -> Self {
         for cell in &mut self.forward_cells {
-            *cell = cell.clone().with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
+            *cell = cell
+                .clone()
+                .with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
         }
         for cell in &mut self.backward_cells {
-            *cell = cell.clone().with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
+            *cell = cell
+                .clone()
+                .with_zoneout(cell_zoneout_rate, hidden_zoneout_rate);
         }
         self
     }
@@ -160,18 +173,23 @@ impl BiLSTMNetwork {
         match self.combine_mode {
             CombineMode::Concat => {
                 // Stack forward and backward outputs vertically
-                let mut combined = Array2::zeros((forward.nrows() + backward.nrows(), forward.ncols()));
-                combined.slice_mut(ndarray::s![..forward.nrows(), ..]).assign(forward);
-                combined.slice_mut(ndarray::s![forward.nrows().., ..]).assign(backward);
+                let mut combined =
+                    Array2::zeros((forward.nrows() + backward.nrows(), forward.ncols()));
                 combined
-            },
+                    .slice_mut(ndarray::s![..forward.nrows(), ..])
+                    .assign(forward);
+                combined
+                    .slice_mut(ndarray::s![forward.nrows().., ..])
+                    .assign(backward);
+                combined
+            }
             CombineMode::Sum => forward + backward,
             CombineMode::Average => (forward + backward) * 0.5,
         }
     }
 
     /// Forward pass for a complete sequence
-    /// 
+    ///
     /// This is the main method for BiLSTM processing. It runs the forward direction
     /// from start to end, backward direction from end to start, then combines outputs.
     pub fn forward_sequence(&mut self, sequence: &[Array2<f64>]) -> Vec<Array2<f64>> {
@@ -194,11 +212,11 @@ impl BiLSTMNetwork {
             let mut backward_cell_state = Array2::zeros((self.hidden_size, 1));
 
             // Forward direction
-            for t in 0..seq_len {
+            for input in layer_input_sequence.iter().take(seq_len) {
                 let (hy, cy) = self.forward_cells[layer_idx].forward(
-                    &layer_input_sequence[t],
+                    input,
                     &forward_hidden_state,
-                    &forward_cell_state
+                    &forward_cell_state,
                 );
 
                 forward_hidden_state = hy.clone();
@@ -211,7 +229,7 @@ impl BiLSTMNetwork {
                 let (hy, cy) = self.backward_cells[layer_idx].forward(
                     &layer_input_sequence[t],
                     &backward_hidden_state,
-                    &backward_cell_state
+                    &backward_cell_state,
                 );
 
                 backward_hidden_state = hy.clone();
@@ -236,13 +254,19 @@ impl BiLSTMNetwork {
     }
 
     /// Forward pass with caching for training
-    pub fn forward_sequence_with_cache(&mut self, sequence: &[Array2<f64>]) -> (Vec<Array2<f64>>, BiLSTMNetworkCache) {
+    pub fn forward_sequence_with_cache(
+        &mut self,
+        sequence: &[Array2<f64>],
+    ) -> (Vec<Array2<f64>>, BiLSTMNetworkCache) {
         let seq_len = sequence.len();
         if seq_len == 0 {
-            return (Vec::new(), BiLSTMNetworkCache {
-                forward_caches: Vec::new(),
-                backward_caches: Vec::new(),
-            });
+            return (
+                Vec::new(),
+                BiLSTMNetworkCache {
+                    forward_caches: Vec::new(),
+                    backward_caches: Vec::new(),
+                },
+            );
         }
 
         let mut all_forward_caches = Vec::new();
@@ -264,11 +288,11 @@ impl BiLSTMNetwork {
             let mut backward_cell_state = Array2::zeros((self.hidden_size, 1));
 
             // Forward direction with caching
-            for t in 0..seq_len {
+            for input in layer_input_sequence.iter().take(seq_len) {
                 let (hy, cy, cache) = self.forward_cells[layer_idx].forward_with_cache(
-                    &layer_input_sequence[t],
+                    input,
                     &forward_hidden_state,
-                    &forward_cell_state
+                    &forward_cell_state,
                 );
 
                 forward_hidden_state = hy.clone();
@@ -282,7 +306,7 @@ impl BiLSTMNetwork {
                 let (hy, cy, cache) = self.backward_cells[layer_idx].forward_with_cache(
                     &layer_input_sequence[t],
                     &backward_hidden_state,
-                    &backward_cell_state
+                    &backward_cell_state,
                 );
 
                 backward_hidden_state = hy.clone();
@@ -336,28 +360,44 @@ impl BiLSTMNetwork {
     }
 
     /// Update parameters for both directions
-    pub fn update_parameters<O: Optimizer>(&mut self, 
-                                         forward_gradients: &[LSTMCellGradients], 
-                                         backward_gradients: &[LSTMCellGradients], 
-                                         optimizer: &mut O) {
+    pub fn update_parameters<O: Optimizer>(
+        &mut self,
+        forward_gradients: &[LSTMCellGradients],
+        backward_gradients: &[LSTMCellGradients],
+        optimizer: &mut O,
+    ) {
         // Update forward cells
-        for (i, (cell, gradients)) in self.forward_cells.iter_mut().zip(forward_gradients.iter()).enumerate() {
+        for (i, (cell, gradients)) in self
+            .forward_cells
+            .iter_mut()
+            .zip(forward_gradients.iter())
+            .enumerate()
+        {
             cell.update_parameters(gradients, optimizer, &format!("forward_layer_{}", i));
         }
 
         // Update backward cells
-        for (i, (cell, gradients)) in self.backward_cells.iter_mut().zip(backward_gradients.iter()).enumerate() {
+        for (i, (cell, gradients)) in self
+            .backward_cells
+            .iter_mut()
+            .zip(backward_gradients.iter())
+            .enumerate()
+        {
             cell.update_parameters(gradients, optimizer, &format!("backward_layer_{}", i));
         }
     }
 
     /// Zero gradients for all cells
     pub fn zero_gradients(&self) -> (Vec<LSTMCellGradients>, Vec<LSTMCellGradients>) {
-        let forward_gradients: Vec<_> = self.forward_cells.iter()
+        let forward_gradients: Vec<_> = self
+            .forward_cells
+            .iter()
             .map(|cell| cell.zero_gradients())
             .collect();
 
-        let backward_gradients: Vec<_> = self.backward_cells.iter()
+        let backward_gradients: Vec<_> = self
+            .backward_cells
+            .iter()
             .map(|cell| cell.zero_gradients())
             .collect();
 
@@ -408,7 +448,7 @@ mod tests {
     #[test]
     fn test_bilstm_forward_sequence() {
         let mut network = BiLSTMNetwork::new_concat(2, 3, 1);
-        
+
         let sequence = vec![
             arr2(&[[1.0], [0.5]]),
             arr2(&[[0.8], [0.2]]),
@@ -416,7 +456,7 @@ mod tests {
         ];
 
         let outputs = network.forward_sequence(&sequence);
-        
+
         assert_eq!(outputs.len(), 3);
         for output in &outputs {
             assert_eq!(output.shape(), &[6, 1]); // 2 * hidden_size for concat
@@ -436,4 +476,4 @@ mod tests {
         network.eval();
         assert!(!network.is_training);
     }
-} 
+}
