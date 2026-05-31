@@ -1,8 +1,8 @@
-use ndarray::{Array2, s};
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
-use crate::utils::sigmoid;
 use crate::layers::dropout::{Dropout, Zoneout};
+use crate::utils::sigmoid;
+use ndarray::{s, Array2};
+use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
 
 /// Holds gradients for all LSTM cell parameters during backpropagation
 #[derive(Clone)]
@@ -75,11 +75,11 @@ impl LSTMCell {
         let b_ih = Array2::zeros((4 * hidden_size, 1));
         let b_hh = Array2::zeros((4 * hidden_size, 1));
 
-        LSTMCell { 
-            w_ih, 
-            w_hh, 
-            b_ih, 
-            b_hh, 
+        LSTMCell {
+            w_ih,
+            w_hh,
+            b_ih,
+            b_hh,
             hidden_size,
             input_dropout: None,
             recurrent_dropout: None,
@@ -149,15 +149,25 @@ impl LSTMCell {
         }
     }
 
-    pub fn forward(&mut self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>) {
+    pub fn forward(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+        cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>) {
         let (hy, cy, _) = self.forward_with_cache(input, hx, cx);
         (hy, cy)
     }
 
-    pub fn forward_with_cache(&mut self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>, LSTMCellCache) {
+    pub fn forward_with_cache(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+        cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>, LSTMCellCache) {
         let (input_dropped, input_mask) = if let Some(ref mut dropout) = self.input_dropout {
             let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (input.clone(), None)
@@ -165,19 +175,28 @@ impl LSTMCell {
 
         let (hx_dropped, recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
             let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hx.clone(), None)
         };
 
         // Compute all gates in parallel: [input_gate, forget_gate, cell_gate, output_gate]
-        let gates = &self.w_ih.dot(&input_dropped) + &self.b_ih + &self.w_hh.dot(&hx_dropped) + &self.b_hh;
+        let gates =
+            &self.w_ih.dot(&input_dropped) + &self.b_ih + &self.w_hh.dot(&hx_dropped) + &self.b_hh;
 
-        let input_gate = gates.slice(s![0..self.hidden_size, ..]).map(|&x| sigmoid(x));
-        let forget_gate = gates.slice(s![self.hidden_size..2*self.hidden_size, ..]).map(|&x| sigmoid(x));
-        let cell_gate = gates.slice(s![2*self.hidden_size..3*self.hidden_size, ..]).map(|&x| x.tanh());
-        let output_gate = gates.slice(s![3*self.hidden_size..4*self.hidden_size, ..]).map(|&x| sigmoid(x));
+        let input_gate = gates
+            .slice(s![0..self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
+        let forget_gate = gates
+            .slice(s![self.hidden_size..2 * self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
+        let cell_gate = gates
+            .slice(s![2 * self.hidden_size..3 * self.hidden_size, ..])
+            .map(|&x| x.tanh());
+        let output_gate = gates
+            .slice(s![3 * self.hidden_size..4 * self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
 
         let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
 
@@ -193,7 +212,7 @@ impl LSTMCell {
 
         let (hy_final, output_mask) = if let Some(ref mut dropout) = self.output_dropout {
             let dropped = dropout.forward(&hy);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hy, None)
@@ -203,7 +222,7 @@ impl LSTMCell {
             input: input.clone(),
             hx: hx.clone(),
             cx: cx.clone(),
-            gates: gates,
+            gates,
             input_gate: input_gate.to_owned(),
             forget_gate: forget_gate.to_owned(),
             cell_gate: cell_gate.to_owned(),
@@ -219,26 +238,51 @@ impl LSTMCell {
     }
 
     /// Batch forward pass for multiple sequences simultaneously
-    /// 
+    ///
     /// # Arguments
     /// * `input` - Input tensor of shape (input_size, batch_size)
     /// * `hx` - Hidden state tensor of shape (hidden_size, batch_size)
     /// * `cx` - Cell state tensor of shape (hidden_size, batch_size)
-    /// 
+    ///
     /// # Returns
     /// * Tuple of (new_hidden_state, new_cell_state) with same batch dimensions
-    pub fn forward_batch(&mut self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>) {
+    pub fn forward_batch(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+        cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>) {
         let batch_size = input.ncols();
-        assert_eq!(hx.ncols(), batch_size, "Hidden state batch size must match input batch size");
-        assert_eq!(cx.ncols(), batch_size, "Cell state batch size must match input batch size");
-        assert_eq!(input.nrows(), self.w_ih.ncols(), "Input feature size must match weight matrix");
-        assert_eq!(hx.nrows(), self.hidden_size, "Hidden state size must match network hidden size");
-        assert_eq!(cx.nrows(), self.hidden_size, "Cell state size must match network hidden size");
+        assert_eq!(
+            hx.ncols(),
+            batch_size,
+            "Hidden state batch size must match input batch size"
+        );
+        assert_eq!(
+            cx.ncols(),
+            batch_size,
+            "Cell state batch size must match input batch size"
+        );
+        assert_eq!(
+            input.nrows(),
+            self.w_ih.ncols(),
+            "Input feature size must match weight matrix"
+        );
+        assert_eq!(
+            hx.nrows(),
+            self.hidden_size,
+            "Hidden state size must match network hidden size"
+        );
+        assert_eq!(
+            cx.nrows(),
+            self.hidden_size,
+            "Cell state size must match network hidden size"
+        );
 
         // Apply input dropout across the entire batch
         let (input_dropped, _input_mask) = if let Some(ref mut dropout) = self.input_dropout {
             let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (input.clone(), None)
@@ -247,7 +291,7 @@ impl LSTMCell {
         // Apply recurrent dropout across the entire batch
         let (hx_dropped, _recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
             let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hx.clone(), None)
@@ -255,14 +299,30 @@ impl LSTMCell {
 
         // Compute all gates in parallel for the entire batch
         // gates shape: (4 * hidden_size, batch_size)
-        let gates = &self.w_ih.dot(&input_dropped) + &self.b_ih.broadcast((4 * self.hidden_size, batch_size)).unwrap() 
-                  + &self.w_hh.dot(&hx_dropped) + &self.b_hh.broadcast((4 * self.hidden_size, batch_size)).unwrap();
+        let gates = &self.w_ih.dot(&input_dropped)
+            + &self
+                .b_ih
+                .broadcast((4 * self.hidden_size, batch_size))
+                .unwrap()
+            + &self.w_hh.dot(&hx_dropped)
+            + self
+                .b_hh
+                .broadcast((4 * self.hidden_size, batch_size))
+                .unwrap();
 
         // Extract and compute gate activations for the entire batch
-        let input_gate = gates.slice(s![0..self.hidden_size, ..]).map(|&x| sigmoid(x));
-        let forget_gate = gates.slice(s![self.hidden_size..2*self.hidden_size, ..]).map(|&x| sigmoid(x));
-        let cell_gate = gates.slice(s![2*self.hidden_size..3*self.hidden_size, ..]).map(|&x| x.tanh());
-        let output_gate = gates.slice(s![3*self.hidden_size..4*self.hidden_size, ..]).map(|&x| sigmoid(x));
+        let input_gate = gates
+            .slice(s![0..self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
+        let forget_gate = gates
+            .slice(s![self.hidden_size..2 * self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
+        let cell_gate = gates
+            .slice(s![2 * self.hidden_size..3 * self.hidden_size, ..])
+            .map(|&x| x.tanh());
+        let output_gate = gates
+            .slice(s![3 * self.hidden_size..4 * self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
 
         // Update cell state for entire batch
         let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
@@ -301,15 +361,20 @@ impl LSTMCell {
     }
 
     /// Batch forward pass with caching for training
-    /// 
+    ///
     /// Similar to forward_batch but caches intermediate values needed for backpropagation
-    pub fn forward_batch_with_cache(&mut self, input: &Array2<f64>, hx: &Array2<f64>, cx: &Array2<f64>) -> (Array2<f64>, Array2<f64>, LSTMCellBatchCache) {
+    pub fn forward_batch_with_cache(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+        cx: &Array2<f64>,
+    ) -> (Array2<f64>, Array2<f64>, LSTMCellBatchCache) {
         let batch_size = input.ncols();
 
         // Apply dropout and track masks
         let (input_dropped, input_mask) = if let Some(ref mut dropout) = self.input_dropout {
             let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (input.clone(), None)
@@ -317,20 +382,36 @@ impl LSTMCell {
 
         let (hx_dropped, recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
             let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hx.clone(), None)
         };
 
         // Compute gates for entire batch
-        let gates = &self.w_ih.dot(&input_dropped) + &self.b_ih.broadcast((4 * self.hidden_size, batch_size)).unwrap()
-                  + &self.w_hh.dot(&hx_dropped) + &self.b_hh.broadcast((4 * self.hidden_size, batch_size)).unwrap();
+        let gates = &self.w_ih.dot(&input_dropped)
+            + &self
+                .b_ih
+                .broadcast((4 * self.hidden_size, batch_size))
+                .unwrap()
+            + &self.w_hh.dot(&hx_dropped)
+            + self
+                .b_hh
+                .broadcast((4 * self.hidden_size, batch_size))
+                .unwrap();
 
-        let input_gate = gates.slice(s![0..self.hidden_size, ..]).map(|&x| sigmoid(x));
-        let forget_gate = gates.slice(s![self.hidden_size..2*self.hidden_size, ..]).map(|&x| sigmoid(x));
-        let cell_gate = gates.slice(s![2*self.hidden_size..3*self.hidden_size, ..]).map(|&x| x.tanh());
-        let output_gate = gates.slice(s![3*self.hidden_size..4*self.hidden_size, ..]).map(|&x| sigmoid(x));
+        let input_gate = gates
+            .slice(s![0..self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
+        let forget_gate = gates
+            .slice(s![self.hidden_size..2 * self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
+        let cell_gate = gates
+            .slice(s![2 * self.hidden_size..3 * self.hidden_size, ..])
+            .map(|&x| x.tanh());
+        let output_gate = gates
+            .slice(s![3 * self.hidden_size..4 * self.hidden_size, ..])
+            .map(|&x| sigmoid(x));
 
         let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
 
@@ -357,7 +438,7 @@ impl LSTMCell {
 
         let (hy_final, output_mask) = if let Some(ref mut dropout) = self.output_dropout {
             let dropped = dropout.forward(&hy);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hy, None)
@@ -385,9 +466,14 @@ impl LSTMCell {
     }
 
     /// Backward pass implementing LSTM gradient computation with dropout
-    /// 
+    ///
     /// Returns (parameter_gradients, input_gradient, hidden_gradient, cell_gradient)
-    pub fn backward(&self, dhy: &Array2<f64>, dcy: &Array2<f64>, cache: &LSTMCellCache) -> (LSTMCellGradients, Array2<f64>, Array2<f64>, Array2<f64>) {
+    pub fn backward(
+        &self,
+        dhy: &Array2<f64>,
+        dcy: &Array2<f64>,
+        cache: &LSTMCellCache,
+    ) -> (LSTMCellGradients, Array2<f64>, Array2<f64>, Array2<f64>) {
         let hidden_size = self.hidden_size;
 
         // Apply output dropout backward pass using saved mask
@@ -408,7 +494,8 @@ impl LSTMCell {
         let do_raw = &do_t * &cache.output_gate * (&cache.output_gate.map(|&x| 1.0 - x));
 
         // Cell state gradients from both tanh and direct paths
-        let dcy_from_tanh = &dhy_dropped * &cache.output_gate * cache.cy.map(|&x| 1.0 - x.tanh().powi(2));
+        let dcy_from_tanh =
+            &dhy_dropped * &cache.output_gate * cache.cy.map(|&x| 1.0 - x.tanh().powi(2));
         let dcy_total = dcy + dcy_from_tanh;
 
         // Forget gate gradients: ∂L/∂f_t = ∂L/∂c_t ⊙ c_t-1
@@ -426,9 +513,15 @@ impl LSTMCell {
         // Concatenate gate gradients in the same order as forward pass
         let mut dgates = Array2::zeros((4 * hidden_size, 1));
         dgates.slice_mut(s![0..hidden_size, ..]).assign(&di_raw);
-        dgates.slice_mut(s![hidden_size..2*hidden_size, ..]).assign(&df_raw);
-        dgates.slice_mut(s![2*hidden_size..3*hidden_size, ..]).assign(&dc_raw);
-        dgates.slice_mut(s![3*hidden_size..4*hidden_size, ..]).assign(&do_raw);
+        dgates
+            .slice_mut(s![hidden_size..2 * hidden_size, ..])
+            .assign(&df_raw);
+        dgates
+            .slice_mut(s![2 * hidden_size..3 * hidden_size, ..])
+            .assign(&dc_raw);
+        dgates
+            .slice_mut(s![3 * hidden_size..4 * hidden_size, ..])
+            .assign(&do_raw);
 
         // Parameter gradients using chain rule
         let dw_ih = dgates.dot(&cache.input.t());
@@ -469,9 +562,14 @@ impl LSTMCell {
     }
 
     /// Batch backward pass for training with multiple sequences
-    /// 
+    ///
     /// Computes gradients for an entire batch simultaneously
-    pub fn backward_batch(&self, dhy: &Array2<f64>, dcy: &Array2<f64>, cache: &LSTMCellBatchCache) -> (LSTMCellGradients, Array2<f64>, Array2<f64>, Array2<f64>) {
+    pub fn backward_batch(
+        &self,
+        dhy: &Array2<f64>,
+        dcy: &Array2<f64>,
+        cache: &LSTMCellBatchCache,
+    ) -> (LSTMCellGradients, Array2<f64>, Array2<f64>, Array2<f64>) {
         let batch_size = cache.batch_size;
         let hidden_size = self.hidden_size;
 
@@ -493,7 +591,8 @@ impl LSTMCell {
         let do_raw = &do_t * &cache.output_gate * &cache.output_gate.map(|&x| 1.0 - x);
 
         // Cell state gradients from both tanh and direct paths
-        let dcy_from_tanh = &dhy_dropped * &cache.output_gate * cache.cy.map(|&x| 1.0 - x.tanh().powi(2));
+        let dcy_from_tanh =
+            &dhy_dropped * &cache.output_gate * cache.cy.map(|&x| 1.0 - x.tanh().powi(2));
         let dcy_total = dcy + dcy_from_tanh;
 
         // Gate gradients for entire batch
@@ -509,14 +608,22 @@ impl LSTMCell {
         // Concatenate gate gradients
         let mut dgates = Array2::zeros((4 * hidden_size, batch_size));
         dgates.slice_mut(s![0..hidden_size, ..]).assign(&di_raw);
-        dgates.slice_mut(s![hidden_size..2*hidden_size, ..]).assign(&df_raw);
-        dgates.slice_mut(s![2*hidden_size..3*hidden_size, ..]).assign(&dc_raw);
-        dgates.slice_mut(s![3*hidden_size..4*hidden_size, ..]).assign(&do_raw);
+        dgates
+            .slice_mut(s![hidden_size..2 * hidden_size, ..])
+            .assign(&df_raw);
+        dgates
+            .slice_mut(s![2 * hidden_size..3 * hidden_size, ..])
+            .assign(&dc_raw);
+        dgates
+            .slice_mut(s![3 * hidden_size..4 * hidden_size, ..])
+            .assign(&do_raw);
 
         // Parameter gradients - sum across batch dimension
         let dw_ih = dgates.dot(&cache.input.t());
         let dw_hh = dgates.dot(&cache.hx.t());
-        let db_ih = dgates.sum_axis(ndarray::Axis(1)).insert_axis(ndarray::Axis(1));
+        let db_ih = dgates
+            .sum_axis(ndarray::Axis(1))
+            .insert_axis(ndarray::Axis(1));
         let db_hh = db_ih.clone();
 
         let gradients = LSTMCellGradients {
@@ -564,7 +671,12 @@ impl LSTMCell {
     }
 
     /// Apply gradients using the provided optimizer
-    pub fn update_parameters<O: crate::optimizers::Optimizer>(&mut self, gradients: &LSTMCellGradients, optimizer: &mut O, prefix: &str) {
+    pub fn update_parameters<O: crate::optimizers::Optimizer>(
+        &mut self,
+        gradients: &LSTMCellGradients,
+        optimizer: &mut O,
+        prefix: &str,
+    ) {
         optimizer.update(&format!("{}_w_ih", prefix), &mut self.w_ih, &gradients.w_ih);
         optimizer.update(&format!("{}_w_hh", prefix), &mut self.w_hh, &gradients.w_hh);
         optimizer.update(&format!("{}_b_ih", prefix), &mut self.b_ih, &gradients.b_ih);
@@ -641,7 +753,7 @@ mod tests {
 
         let dhy = arr2(&[[1.0], [1.0], [1.0]]);
         let dcy = arr2(&[[0.0], [0.0], [0.0]]);
-        
+
         let (gradients, dx, dhx, dcx) = cell.backward(&dhy, &dcy, &cache);
 
         assert_eq!(gradients.w_ih.shape(), &[4 * hidden_size, input_size]);

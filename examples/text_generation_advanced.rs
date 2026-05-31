@@ -1,10 +1,18 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 use ndarray::Array2;
-use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::layers::linear::LinearLayer;
-use rust_lstm::text::{TextVocabulary, CharacterEmbedding, sample_with_temperature};
-use rust_lstm::training::LSTMTrainer;
 use rust_lstm::loss::CrossEntropyLoss;
+use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::Adam;
+use rust_lstm::text::{sample_with_temperature, CharacterEmbedding, TextVocabulary};
+use rust_lstm::training::LSTMTrainer;
 use std::collections::HashMap;
 
 struct CharacterLSTM {
@@ -25,7 +33,12 @@ impl CharacterLSTM {
         let output_layer = LinearLayer::new(hidden_size, vocab.size());
 
         println!("Vocabulary size: {}", vocab.size());
-        println!("Network: embed({}) -> LSTM({}) -> Linear({})", embed_dim, hidden_size, vocab.size());
+        println!(
+            "Network: embed({}) -> LSTM({}) -> Linear({})",
+            embed_dim,
+            hidden_size,
+            vocab.size()
+        );
 
         Self {
             vocab,
@@ -77,7 +90,11 @@ impl CharacterLSTM {
         let split = (sequences.len() as f64 * 0.9) as usize;
         let (train, val) = sequences.split_at(split);
 
-        println!("Training on {} sequences, validating on {}", train.len(), val.len());
+        println!(
+            "Training on {} sequences, validating on {}",
+            train.len(),
+            val.len()
+        );
 
         let loss_fn = CrossEntropyLoss;
         let optimizer = Adam::new(0.002);
@@ -144,18 +161,24 @@ impl CharacterLSTM {
 fn get_sample_texts() -> HashMap<&'static str, &'static str> {
     let mut texts = HashMap::new();
 
-    texts.insert("poetry",
+    texts.insert(
+        "poetry",
         "The woods are lovely, dark and deep, But I have promises to keep, \
          And miles to go before I sleep, And miles to go before I sleep. \
-         Two roads diverged in a yellow wood, And sorry I could not travel both.");
+         Two roads diverged in a yellow wood, And sorry I could not travel both.",
+    );
 
-    texts.insert("code",
+    texts.insert(
+        "code",
         "fn main() { println!(\"Hello, world!\"); let x = 42; \
-         if x > 10 { println!(\"x is greater\"); } for i in 0..5 { println!(\"i = {}\", i); } }");
+         if x > 10 { println!(\"x is greater\"); } for i in 0..5 { println!(\"i = {}\", i); } }",
+    );
 
-    texts.insert("prose",
+    texts.insert(
+        "prose",
         "In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, \
-         filled with the ends of worms and an oozy smell, nor yet a dry, bare, sandy hole.");
+         filled with the ends of worms and an oozy smell, nor yet a dry, bare, sandy hole.",
+    );
 
     texts
 }

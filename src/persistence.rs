@@ -1,11 +1,11 @@
-use serde::{Serialize, Deserialize};
 use ndarray::{Array2, Dimension};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{Write, Read};
+use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::models::lstm_network::LSTMNetwork;
 use crate::layers::lstm_cell::LSTMCell;
+use crate::models::lstm_network::LSTMNetwork;
 
 /// Serializable version of Array2<f64> for persistence
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -23,9 +23,9 @@ impl From<&Array2<f64>> for SerializableArray2 {
     }
 }
 
-impl Into<Array2<f64>> for SerializableArray2 {
-    fn into(self) -> Array2<f64> {
-        Array2::from_shape_vec(self.shape, self.data)
+impl From<SerializableArray2> for Array2<f64> {
+    fn from(val: SerializableArray2) -> Self {
+        Array2::from_shape_vec(val.shape, val.data)
             .expect("Failed to reconstruct Array2 from serialized data")
     }
 }
@@ -52,14 +52,14 @@ impl From<&LSTMCell> for SerializableLSTMCell {
     }
 }
 
-impl Into<LSTMCell> for SerializableLSTMCell {
-    fn into(self) -> LSTMCell {
+impl From<SerializableLSTMCell> for LSTMCell {
+    fn from(val: SerializableLSTMCell) -> Self {
         LSTMCell {
-            w_ih: self.w_ih.into(),
-            w_hh: self.w_hh.into(),
-            b_ih: self.b_ih.into(),
-            b_hh: self.b_hh.into(),
-            hidden_size: self.hidden_size,
+            w_ih: val.w_ih.into(),
+            w_hh: val.w_hh.into(),
+            b_ih: val.b_ih.into(),
+            b_hh: val.b_hh.into(),
+            hidden_size: val.hidden_size,
             input_dropout: None,
             recurrent_dropout: None,
             output_dropout: None,
@@ -89,13 +89,13 @@ impl From<&LSTMNetwork> for SerializableLSTMNetwork {
     }
 }
 
-impl Into<LSTMNetwork> for SerializableLSTMNetwork {
-    fn into(self) -> LSTMNetwork {
+impl From<SerializableLSTMNetwork> for LSTMNetwork {
+    fn from(val: SerializableLSTMNetwork) -> Self {
         LSTMNetwork::from_cells(
-            self.cells.into_iter().map(|cell| cell.into()).collect(),
-            self.input_size,
-            self.hidden_size,
-            self.num_layers,
+            val.cells.into_iter().map(|cell| cell.into()).collect(),
+            val.input_size,
+            val.hidden_size,
+            val.num_layers,
         )
     }
 }
@@ -180,9 +180,7 @@ impl ModelPersistence {
     }
 
     /// Load model from JSON format
-    pub fn load_from_json<P: AsRef<Path>>(
-        path: P,
-    ) -> Result<SavedModel, PersistenceError> {
+    pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SavedModel, PersistenceError> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
@@ -202,9 +200,7 @@ impl ModelPersistence {
     }
 
     /// Load model from binary format
-    pub fn load_from_binary<P: AsRef<Path>>(
-        path: P,
-    ) -> Result<SavedModel, PersistenceError> {
+    pub fn load_from_binary<P: AsRef<Path>>(path: P) -> Result<SavedModel, PersistenceError> {
         let mut file = File::open(path)?;
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)?;
@@ -242,8 +238,12 @@ impl ModelPersistence {
 /// Convenience trait for easy model saving/loading
 pub trait PersistentModel {
     /// Save model to file (format determined by file extension)
-    fn save<P: AsRef<Path>>(&self, path: P, metadata: ModelMetadata) -> Result<(), PersistenceError>;
-    
+    fn save<P: AsRef<Path>>(
+        &self,
+        path: P,
+        metadata: ModelMetadata,
+    ) -> Result<(), PersistenceError>;
+
     /// Load model from file (format determined by file extension)
     fn load<P: AsRef<Path>>(path: P) -> Result<(Self, ModelMetadata), PersistenceError>
     where
@@ -251,7 +251,11 @@ pub trait PersistentModel {
 }
 
 impl PersistentModel for LSTMNetwork {
-    fn save<P: AsRef<Path>>(&self, path: P, metadata: ModelMetadata) -> Result<(), PersistenceError> {
+    fn save<P: AsRef<Path>>(
+        &self,
+        path: P,
+        metadata: ModelMetadata,
+    ) -> Result<(), PersistenceError> {
         let saved_model = SavedModel {
             network: self.into(),
             metadata,
@@ -275,4 +279,4 @@ impl PersistentModel for LSTMNetwork {
 
         Ok((saved_model.network.into(), saved_model.metadata))
     }
-} 
+}

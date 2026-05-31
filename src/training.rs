@@ -1,9 +1,9 @@
-use ndarray::Array2;
-use crate::models::lstm_network::LSTMNetwork;
 use crate::loss::{LossFunction, MSELoss};
-use crate::optimizers::{Optimizer, SGD, ScheduledOptimizer};
-use crate::schedulers::LearningRateScheduler;
+use crate::models::lstm_network::LSTMNetwork;
+use crate::optimizers::{Optimizer, ScheduledOptimizer, SGD};
 use crate::persistence::SerializableLSTMNetwork;
+use crate::schedulers::LearningRateScheduler;
+use ndarray::Array2;
 use std::time::Instant;
 
 /// Configuration for training hyperparameters
@@ -91,7 +91,11 @@ impl EarlyStopper {
 
     /// Check if training should stop based on current metrics
     /// Returns (should_stop, is_best_score)
-    pub fn should_stop(&mut self, current_metrics: &TrainingMetrics, network: &LSTMNetwork) -> (bool, bool) {
+    pub fn should_stop(
+        &mut self,
+        current_metrics: &TrainingMetrics,
+        network: &LSTMNetwork,
+    ) -> (bool, bool) {
         let current_score = match self.config.monitor {
             EarlyStoppingMetric::ValidationLoss => {
                 match current_metrics.validation_loss {
@@ -106,20 +110,20 @@ impl EarlyStopper {
         };
 
         let is_improvement = current_score < self.best_score - self.config.min_delta;
-        
+
         if is_improvement {
             self.best_score = current_score;
             self.wait_count = 0;
-            
+
             // Save best weights if restore_best_weights is enabled
             if self.config.restore_best_weights {
                 self.best_weights = Some(network.into());
             }
-            
+
             (false, true)
         } else {
             self.wait_count += 1;
-            
+
             if self.wait_count >= self.config.patience {
                 self.stopped_epoch = Some(current_metrics.epoch);
                 (true, false)
@@ -174,9 +178,10 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
     pub fn with_config(mut self, config: TrainingConfig) -> Self {
         // Initialize early stopper if early stopping is configured
-        self.early_stopper = config.early_stopping.as_ref().map(|es_config| {
-            EarlyStopper::new(es_config.clone())
-        });
+        self.early_stopper = config
+            .early_stopping
+            .as_ref()
+            .map(|es_config| EarlyStopper::new(es_config.clone()));
         self.config = config;
         self
     }
@@ -190,7 +195,7 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
         self.network.train();
 
         let (outputs, caches) = self.network.forward_sequence_with_cache(inputs);
-        
+
         let mut total_loss = 0.0;
         let mut total_gradients = self.network.zero_gradients();
 
@@ -215,17 +220,20 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             self.clip_gradients(&mut total_gradients, clip_value);
         }
 
-        self.network.update_parameters(&total_gradients, &mut self.optimizer);
+        self.network
+            .update_parameters(&total_gradients, &mut self.optimizer);
 
         total_loss / inputs.len() as f64
     }
 
     /// Train for multiple epochs with optional validation
-    pub fn train(&mut self, train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
-                 validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>) {
-        
+    pub fn train(
+        &mut self,
+        train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
+        validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>,
+    ) {
         println!("Starting training for {} epochs...", self.config.epochs);
-        
+
         for epoch in 0..self.config.epochs {
             let start_time = Instant::now();
             let mut epoch_loss = 0.0;
@@ -270,25 +278,40 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             if epoch % self.config.print_every == 0 {
                 let best_indicator = if is_best { " *" } else { "" };
                 if let Some(val_loss) = validation_loss {
-                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
-                             epoch, epoch_loss, val_loss, current_lr, time_elapsed, best_indicator);
+                    println!(
+                        "Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}",
+                        epoch, epoch_loss, val_loss, current_lr, time_elapsed, best_indicator
+                    );
                 } else {
-                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
-                             epoch, epoch_loss, current_lr, time_elapsed, best_indicator);
+                    println!(
+                        "Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}",
+                        epoch, epoch_loss, current_lr, time_elapsed, best_indicator
+                    );
                 }
             }
 
             if should_stop {
-                let stopped_epoch = self.early_stopper.as_ref().unwrap().stopped_epoch().unwrap();
+                let stopped_epoch = self
+                    .early_stopper
+                    .as_ref()
+                    .unwrap()
+                    .stopped_epoch()
+                    .unwrap();
                 let best_score = self.early_stopper.as_ref().unwrap().best_score();
-                println!("Early stopping triggered at epoch {} (best score: {:.6})", stopped_epoch, best_score);
-                
+                println!(
+                    "Early stopping triggered at epoch {} (best score: {:.6})",
+                    stopped_epoch, best_score
+                );
+
                 // Restore best weights if configured
                 if let Some(ref early_stopper) = self.early_stopper {
                     if let Err(e) = early_stopper.restore_best_weights(&mut self.network) {
                         println!("Warning: Could not restore best weights: {}", e);
                     } else {
-                        println!("Restored best weights from epoch with score {:.6}", best_score);
+                        println!(
+                            "Restored best weights from epoch with score {:.6}",
+                            best_score
+                        );
                     }
                 }
                 break;
@@ -301,7 +324,7 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
     /// Evaluate model performance on validation data
     pub fn evaluate(&mut self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
         self.network.eval();
-        
+
         let mut total_loss = 0.0;
         let mut total_samples = 0;
 
@@ -311,7 +334,7 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
             }
 
             let (outputs, _) = self.network.forward_sequence_with_cache(inputs);
-            
+
             for ((output, _), target) in outputs.iter().zip(targets.iter()) {
                 let loss = self.loss_function.compute_loss(output, target);
                 total_loss += loss;
@@ -329,13 +352,17 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
     /// Generate predictions for input sequences
     pub fn predict(&mut self, inputs: &[Array2<f64>]) -> Vec<Array2<f64>> {
         self.network.eval();
-        
+
         let (outputs, _) = self.network.forward_sequence_with_cache(inputs);
         outputs.into_iter().map(|(output, _)| output).collect()
     }
 
     /// Clip gradients by global norm to prevent exploding gradients
-    fn clip_gradients(&self, gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients], max_norm: f64) {
+    fn clip_gradients(
+        &self,
+        gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients],
+        max_norm: f64,
+    ) {
         for gradient in gradients.iter_mut() {
             self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
             self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
@@ -381,7 +408,11 @@ pub struct ScheduledLSTMTrainer<L: LossFunction, O: Optimizer, S: LearningRateSc
 }
 
 impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrainer<L, O, S> {
-    pub fn new(network: LSTMNetwork, loss_function: L, optimizer: ScheduledOptimizer<O, S>) -> Self {
+    pub fn new(
+        network: LSTMNetwork,
+        loss_function: L,
+        optimizer: ScheduledOptimizer<O, S>,
+    ) -> Self {
         ScheduledLSTMTrainer {
             network,
             loss_function,
@@ -394,9 +425,10 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
 
     pub fn with_config(mut self, config: TrainingConfig) -> Self {
         // Initialize early stopper if early stopping is configured
-        self.early_stopper = config.early_stopping.as_ref().map(|es_config| {
-            EarlyStopper::new(es_config.clone())
-        });
+        self.early_stopper = config
+            .early_stopping
+            .as_ref()
+            .map(|es_config| EarlyStopper::new(es_config.clone()));
         self.config = config;
         self
     }
@@ -410,7 +442,7 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
         self.network.train();
 
         let (outputs, caches) = self.network.forward_sequence_with_cache(inputs);
-        
+
         let mut total_loss = 0.0;
         let mut total_gradients = self.network.zero_gradients();
 
@@ -435,18 +467,24 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
             self.clip_gradients(&mut total_gradients, clip_value);
         }
 
-        self.network.update_parameters(&total_gradients, &mut self.optimizer);
+        self.network
+            .update_parameters(&total_gradients, &mut self.optimizer);
 
         total_loss / inputs.len() as f64
     }
 
     /// Train for multiple epochs with automatic scheduler stepping
-    pub fn train(&mut self, train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
-                 validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>) {
-        
-        println!("Starting training for {} epochs with {} scheduler...", 
-                 self.config.epochs, self.optimizer.scheduler_name());
-        
+    pub fn train(
+        &mut self,
+        train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
+        validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>,
+    ) {
+        println!(
+            "Starting training for {} epochs with {} scheduler...",
+            self.config.epochs,
+            self.optimizer.scheduler_name()
+        );
+
         for epoch in 0..self.config.epochs {
             let start_time = Instant::now();
             let mut epoch_loss = 0.0;
@@ -477,7 +515,10 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
 
             // Log learning rate changes if enabled
             if self.config.log_lr_changes && (new_lr - prev_lr).abs() > 1e-10 {
-                println!("Learning rate changed from {:.2e} to {:.2e}", prev_lr, new_lr);
+                println!(
+                    "Learning rate changed from {:.2e} to {:.2e}",
+                    prev_lr, new_lr
+                );
             }
 
             let time_elapsed = start_time.elapsed().as_secs_f64();
@@ -504,25 +545,40 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
             if epoch % self.config.print_every == 0 {
                 let best_indicator = if is_best { " *" } else { "" };
                 if let Some(val_loss) = validation_loss {
-                    println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
-                             epoch, epoch_loss, val_loss, new_lr, time_elapsed, best_indicator);
+                    println!(
+                        "Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}",
+                        epoch, epoch_loss, val_loss, new_lr, time_elapsed, best_indicator
+                    );
                 } else {
-                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}", 
-                             epoch, epoch_loss, new_lr, time_elapsed, best_indicator);
+                    println!(
+                        "Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s{}",
+                        epoch, epoch_loss, new_lr, time_elapsed, best_indicator
+                    );
                 }
             }
 
             if should_stop {
-                let stopped_epoch = self.early_stopper.as_ref().unwrap().stopped_epoch().unwrap();
+                let stopped_epoch = self
+                    .early_stopper
+                    .as_ref()
+                    .unwrap()
+                    .stopped_epoch()
+                    .unwrap();
                 let best_score = self.early_stopper.as_ref().unwrap().best_score();
-                println!("Early stopping triggered at epoch {} (best score: {:.6})", stopped_epoch, best_score);
-                
+                println!(
+                    "Early stopping triggered at epoch {} (best score: {:.6})",
+                    stopped_epoch, best_score
+                );
+
                 // Restore best weights if configured
                 if let Some(ref early_stopper) = self.early_stopper {
                     if let Err(e) = early_stopper.restore_best_weights(&mut self.network) {
                         println!("Warning: Could not restore best weights: {}", e);
                     } else {
-                        println!("Restored best weights from epoch with score {:.6}", best_score);
+                        println!(
+                            "Restored best weights from epoch with score {:.6}",
+                            best_score
+                        );
                     }
                 }
                 break;
@@ -535,7 +591,7 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
     /// Evaluate model performance on validation data
     pub fn evaluate(&mut self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)]) -> f64 {
         self.network.eval();
-        
+
         let mut total_loss = 0.0;
         let mut total_samples = 0;
 
@@ -545,7 +601,7 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
             }
 
             let (outputs, _) = self.network.forward_sequence_with_cache(inputs);
-            
+
             for ((output, _), target) in outputs.iter().zip(targets.iter()) {
                 let loss = self.loss_function.compute_loss(output, target);
                 total_loss += loss;
@@ -563,13 +619,17 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
     /// Generate predictions for input sequences
     pub fn predict(&mut self, inputs: &[Array2<f64>]) -> Vec<Array2<f64>> {
         self.network.eval();
-        
+
         let (outputs, _) = self.network.forward_sequence_with_cache(inputs);
         outputs.into_iter().map(|(output, _)| output).collect()
     }
 
     /// Clip gradients by global norm to prevent exploding gradients
-    fn clip_gradients(&self, gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients], max_norm: f64) {
+    fn clip_gradients(
+        &self,
+        gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients],
+        max_norm: f64,
+    ) {
         for gradient in gradients.iter_mut() {
             self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
             self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
@@ -644,24 +704,33 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
 
     pub fn with_config(mut self, config: TrainingConfig) -> Self {
         // Initialize early stopper if early stopping is configured
-        self.early_stopper = config.early_stopping.as_ref().map(|es_config| {
-            EarlyStopper::new(es_config.clone())
-        });
+        self.early_stopper = config
+            .early_stopping
+            .as_ref()
+            .map(|es_config| EarlyStopper::new(es_config.clone()));
         self.config = config;
         self
     }
 
     /// Train on a batch of sequences using batch processing
-    /// 
+    ///
     /// # Arguments
     /// * `batch_inputs` - Vector of input sequences, each sequence is Vec<Array2<f64>>
     /// * `batch_targets` - Vector of target sequences, each sequence is Vec<Array2<f64>>
-    /// 
+    ///
     /// # Returns
     /// * Average loss across the batch
-    pub fn train_batch(&mut self, batch_inputs: &[Vec<Array2<f64>>], batch_targets: &[Vec<Array2<f64>>]) -> f64 {
-        assert_eq!(batch_inputs.len(), batch_targets.len(), "Batch inputs and targets must have same length");
-        
+    pub fn train_batch(
+        &mut self,
+        batch_inputs: &[Vec<Array2<f64>>],
+        batch_targets: &[Vec<Array2<f64>>],
+    ) -> f64 {
+        assert_eq!(
+            batch_inputs.len(),
+            batch_targets.len(),
+            "Batch inputs and targets must have same length"
+        );
+
         if batch_inputs.is_empty() {
             return 0.0;
         }
@@ -688,10 +757,16 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
             let mut active_sequences = Vec::new();
 
             // Collect active sequences for this time step
-            for (batch_idx, (input_seq, target_seq)) in batch_inputs.iter().zip(batch_targets.iter()).enumerate() {
+            for (batch_idx, (input_seq, target_seq)) in
+                batch_inputs.iter().zip(batch_targets.iter()).enumerate()
+            {
                 if t < input_seq.len() && t < target_seq.len() {
-                    batch_input.column_mut(batch_idx).assign(&input_seq[t].column(0));
-                    batch_target.column_mut(batch_idx).assign(&target_seq[t].column(0));
+                    batch_input
+                        .column_mut(batch_idx)
+                        .assign(&input_seq[t].column(0));
+                    batch_target
+                        .column_mut(batch_idx)
+                        .assign(&target_seq[t].column(0));
                     active_sequences.push(batch_idx);
                 }
             }
@@ -701,15 +776,20 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
             }
 
             // Forward pass with caching for active sequences
-            let (new_batch_hx, new_batch_cx, cache) = self.network.forward_batch_with_cache(&batch_input, &batch_hx, &batch_cx);
+            let (new_batch_hx, new_batch_cx, cache) =
+                self.network
+                    .forward_batch_with_cache(&batch_input, &batch_hx, &batch_cx);
 
             // Compute loss only for active sequences
             let active_predictions = if active_sequences.len() == batch_size {
                 new_batch_hx.clone()
             } else {
-                let mut active_preds = Array2::zeros((self.network.hidden_size, active_sequences.len()));
+                let mut active_preds =
+                    Array2::zeros((self.network.hidden_size, active_sequences.len()));
                 for (idx, &batch_idx) in active_sequences.iter().enumerate() {
-                    active_preds.column_mut(idx).assign(&new_batch_hx.column(batch_idx));
+                    active_preds
+                        .column_mut(idx)
+                        .assign(&new_batch_hx.column(batch_idx));
                 }
                 active_preds
             };
@@ -717,19 +797,26 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
             let active_targets = if active_sequences.len() == batch_size {
                 batch_target.clone()
             } else {
-                let mut active_targs = Array2::zeros((self.network.hidden_size, active_sequences.len()));
+                let mut active_targs =
+                    Array2::zeros((self.network.hidden_size, active_sequences.len()));
                 for (idx, &batch_idx) in active_sequences.iter().enumerate() {
-                    active_targs.column_mut(idx).assign(&batch_target.column(batch_idx));
+                    active_targs
+                        .column_mut(idx)
+                        .assign(&batch_target.column(batch_idx));
                 }
                 active_targs
             };
 
-            let step_loss = self.loss_function.compute_batch_loss(&active_predictions, &active_targets);
+            let step_loss = self
+                .loss_function
+                .compute_batch_loss(&active_predictions, &active_targets);
             total_loss += step_loss;
             valid_steps += 1;
 
             // Compute gradients
-            let dhy = self.loss_function.compute_batch_gradient(&active_predictions, &active_targets);
+            let dhy = self
+                .loss_function
+                .compute_batch_gradient(&active_predictions, &active_targets);
             let _dcy = Array2::<f64>::zeros(dhy.raw_dim());
 
             // Expand gradients back to full batch size if needed
@@ -767,7 +854,8 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
         }
 
         // Update parameters
-        self.network.update_parameters(&total_gradients, &mut self.optimizer);
+        self.network
+            .update_parameters(&total_gradients, &mut self.optimizer);
 
         if valid_steps > 0 {
             total_loss / valid_steps as f64
@@ -777,19 +865,22 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
     }
 
     /// Train for multiple epochs with batch processing
-    /// 
+    ///
     /// # Arguments
     /// * `train_data` - Vector of (input_sequences, target_sequences) tuples for training
     /// * `validation_data` - Optional validation data
     /// * `batch_size` - Number of sequences to process in each batch
-    pub fn train(&mut self, 
-                 train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], 
-                 validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>,
-                 batch_size: usize) {
-        
-        println!("Starting batch training for {} epochs with batch size {}...", 
-                 self.config.epochs, batch_size);
-        
+    pub fn train(
+        &mut self,
+        train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
+        validation_data: Option<&[(Vec<Array2<f64>>, Vec<Array2<f64>>)]>,
+        batch_size: usize,
+    ) {
+        println!(
+            "Starting batch training for {} epochs with batch size {}...",
+            self.config.epochs, batch_size
+        );
+
         for epoch in 0..self.config.epochs {
             let start_time = Instant::now();
             let mut epoch_loss = 0.0;
@@ -799,10 +890,11 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
             for batch_start in (0..train_data.len()).step_by(batch_size) {
                 let batch_end = (batch_start + batch_size).min(train_data.len());
                 let batch = &train_data[batch_start..batch_end];
-                
+
                 let batch_inputs: Vec<_> = batch.iter().map(|(inputs, _)| inputs.clone()).collect();
-                let batch_targets: Vec<_> = batch.iter().map(|(_, targets)| targets.clone()).collect();
-                
+                let batch_targets: Vec<_> =
+                    batch.iter().map(|(_, targets)| targets.clone()).collect();
+
                 let batch_loss = self.train_batch(&batch_inputs, &batch_targets);
                 epoch_loss += batch_loss;
                 num_batches += 1;
@@ -846,22 +938,35 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
                     println!("Epoch {}: Train Loss: {:.6}, Val Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}{}", 
                              epoch, epoch_loss, val_loss, current_lr, time_elapsed, num_batches, best_indicator);
                 } else {
-                    println!("Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}{}", 
-                             epoch, epoch_loss, current_lr, time_elapsed, num_batches, best_indicator);
+                    println!(
+                        "Epoch {}: Train Loss: {:.6}, LR: {:.2e}, Time: {:.2}s, Batches: {}{}",
+                        epoch, epoch_loss, current_lr, time_elapsed, num_batches, best_indicator
+                    );
                 }
             }
 
             if should_stop {
-                let stopped_epoch = self.early_stopper.as_ref().unwrap().stopped_epoch().unwrap();
+                let stopped_epoch = self
+                    .early_stopper
+                    .as_ref()
+                    .unwrap()
+                    .stopped_epoch()
+                    .unwrap();
                 let best_score = self.early_stopper.as_ref().unwrap().best_score();
-                println!("Early stopping triggered at epoch {} (best score: {:.6})", stopped_epoch, best_score);
-                
+                println!(
+                    "Early stopping triggered at epoch {} (best score: {:.6})",
+                    stopped_epoch, best_score
+                );
+
                 // Restore best weights if configured
                 if let Some(ref early_stopper) = self.early_stopper {
                     if let Err(e) = early_stopper.restore_best_weights(&mut self.network) {
                         println!("Warning: Could not restore best weights: {}", e);
                     } else {
-                        println!("Restored best weights from epoch with score {:.6}", best_score);
+                        println!(
+                            "Restored best weights from epoch with score {:.6}",
+                            best_score
+                        );
                     }
                 }
                 break;
@@ -872,25 +977,29 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
     }
 
     /// Evaluate model performance using batch processing
-    pub fn evaluate_batch(&mut self, data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)], batch_size: usize) -> f64 {
+    pub fn evaluate_batch(
+        &mut self,
+        data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
+        batch_size: usize,
+    ) -> f64 {
         self.network.eval();
-        
+
         let mut total_loss = 0.0;
         let mut num_batches = 0;
 
         for batch_start in (0..data.len()).step_by(batch_size) {
             let batch_end = (batch_start + batch_size).min(data.len());
             let batch = &data[batch_start..batch_end];
-            
+
             let batch_inputs: Vec<_> = batch.iter().map(|(inputs, _)| inputs.clone()).collect();
             let batch_targets: Vec<_> = batch.iter().map(|(_, targets)| targets.clone()).collect();
-            
+
             // Process batch and compute loss (simplified evaluation)
             let batch_outputs = self.network.forward_batch_sequences(&batch_inputs);
-            
+
             let mut batch_loss = 0.0;
             let mut valid_samples = 0;
-            
+
             for (outputs, targets) in batch_outputs.iter().zip(batch_targets.iter()) {
                 for ((output, _), target) in outputs.iter().zip(targets.iter()) {
                     let loss = self.loss_function.compute_loss(output, target);
@@ -898,7 +1007,7 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
                     valid_samples += 1;
                 }
             }
-            
+
             if valid_samples > 0 {
                 total_loss += batch_loss / valid_samples as f64;
                 num_batches += 1;
@@ -915,15 +1024,25 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
     /// Generate predictions using batch processing
     pub fn predict_batch(&mut self, inputs: &[Vec<Array2<f64>>]) -> Vec<Vec<Array2<f64>>> {
         self.network.eval();
-        
+
         let batch_outputs = self.network.forward_batch_sequences(inputs);
-        batch_outputs.into_iter()
-            .map(|sequence_outputs| sequence_outputs.into_iter().map(|(output, _)| output).collect())
+        batch_outputs
+            .into_iter()
+            .map(|sequence_outputs| {
+                sequence_outputs
+                    .into_iter()
+                    .map(|(output, _)| output)
+                    .collect()
+            })
             .collect()
     }
 
     /// Clip gradients by global norm to prevent exploding gradients
-    fn clip_gradients(&self, gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients], max_norm: f64) {
+    fn clip_gradients(
+        &self,
+        gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients],
+        max_norm: f64,
+    ) {
         for gradient in gradients.iter_mut() {
             self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
             self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
@@ -966,13 +1085,14 @@ pub fn create_basic_trainer(network: LSTMNetwork, learning_rate: f64) -> LSTMTra
 
 /// Create a scheduled trainer with SGD and StepLR scheduler
 pub fn create_step_lr_trainer(
-    network: LSTMNetwork, 
-    learning_rate: f64, 
-    step_size: usize, 
-    gamma: f64
+    network: LSTMNetwork,
+    learning_rate: f64,
+    step_size: usize,
+    gamma: f64,
 ) -> ScheduledLSTMTrainer<MSELoss, SGD, crate::schedulers::StepLR> {
     let loss_function = MSELoss;
-    let optimizer = ScheduledOptimizer::step_lr(SGD::new(learning_rate), learning_rate, step_size, gamma);
+    let optimizer =
+        ScheduledOptimizer::step_lr(SGD::new(learning_rate), learning_rate, step_size, gamma);
     ScheduledLSTMTrainer::new(network, loss_function, optimizer)
 }
 
@@ -980,14 +1100,11 @@ pub fn create_step_lr_trainer(
 pub fn create_one_cycle_trainer(
     network: LSTMNetwork,
     max_lr: f64,
-    total_steps: usize
+    total_steps: usize,
 ) -> ScheduledLSTMTrainer<MSELoss, crate::optimizers::Adam, crate::schedulers::OneCycleLR> {
     let loss_function = MSELoss;
-    let optimizer = ScheduledOptimizer::one_cycle(
-        crate::optimizers::Adam::new(max_lr), 
-        max_lr, 
-        total_steps
-    );
+    let optimizer =
+        ScheduledOptimizer::one_cycle(crate::optimizers::Adam::new(max_lr), max_lr, total_steps);
     ScheduledLSTMTrainer::new(network, loss_function, optimizer)
 }
 
@@ -996,25 +1113,32 @@ pub fn create_cosine_annealing_trainer(
     network: LSTMNetwork,
     learning_rate: f64,
     t_max: usize,
-    eta_min: f64
+    eta_min: f64,
 ) -> ScheduledLSTMTrainer<MSELoss, crate::optimizers::Adam, crate::schedulers::CosineAnnealingLR> {
     let loss_function = MSELoss;
     let optimizer = crate::optimizers::Adam::new(learning_rate);
     let scheduler = crate::schedulers::CosineAnnealingLR::new(t_max, eta_min);
-    let scheduled_optimizer = crate::optimizers::ScheduledOptimizer::new(optimizer, scheduler, learning_rate);
-    
+    let scheduled_optimizer =
+        crate::optimizers::ScheduledOptimizer::new(optimizer, scheduler, learning_rate);
+
     ScheduledLSTMTrainer::new(network, loss_function, scheduled_optimizer)
 }
 
 /// Create a basic batch trainer with SGD optimizer and MSE loss
-pub fn create_basic_batch_trainer(network: LSTMNetwork, learning_rate: f64) -> LSTMBatchTrainer<MSELoss, SGD> {
+pub fn create_basic_batch_trainer(
+    network: LSTMNetwork,
+    learning_rate: f64,
+) -> LSTMBatchTrainer<MSELoss, SGD> {
     let loss_function = MSELoss;
     let optimizer = SGD::new(learning_rate);
     LSTMBatchTrainer::new(network, loss_function, optimizer)
 }
 
 /// Create a batch trainer with Adam optimizer and MSE loss
-pub fn create_adam_batch_trainer(network: LSTMNetwork, learning_rate: f64) -> LSTMBatchTrainer<MSELoss, crate::optimizers::Adam> {
+pub fn create_adam_batch_trainer(
+    network: LSTMNetwork,
+    learning_rate: f64,
+) -> LSTMBatchTrainer<MSELoss, crate::optimizers::Adam> {
     let loss_function = MSELoss;
     let optimizer = crate::optimizers::Adam::new(learning_rate);
     LSTMBatchTrainer::new(network, loss_function, optimizer)
@@ -1029,7 +1153,7 @@ mod tests {
     fn test_trainer_creation() {
         let network = LSTMNetwork::new(2, 3, 1);
         let trainer = create_basic_trainer(network, 0.01);
-        
+
         assert_eq!(trainer.network.input_size, 2);
         assert_eq!(trainer.network.hidden_size, 3);
         assert_eq!(trainer.network.num_layers, 1);
@@ -1039,17 +1163,11 @@ mod tests {
     fn test_sequence_training() {
         let network = LSTMNetwork::new(2, 3, 1);
         let mut trainer = create_basic_trainer(network, 0.01);
-        
-        let inputs = vec![
-            arr2(&[[1.0], [0.0]]),
-            arr2(&[[0.0], [1.0]]),
-        ];
-        let targets = vec![
-            arr2(&[[1.0], [0.0], [0.0]]),
-            arr2(&[[0.0], [1.0], [0.0]]),
-        ];
-        
+
+        let inputs = vec![arr2(&[[1.0], [0.0]]), arr2(&[[0.0], [1.0]])];
+        let targets = vec![arr2(&[[1.0], [0.0], [0.0]]), arr2(&[[0.0], [1.0], [0.0]])];
+
         let loss = trainer.train_sequence(&inputs, &targets);
         assert!(loss >= 0.0);
     }
-} 
+}

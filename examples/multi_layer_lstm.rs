@@ -1,3 +1,11 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 use ndarray::Array2;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 
@@ -11,9 +19,15 @@ fn main() {
     let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers);
 
     // Create a sequence of example input data
-    let sequence = (0..sequence_length).map(|i| {
-        Array2::from_shape_vec((input_size, 1), vec![i as f64 * 0.1, i as f64 * 0.2, i as f64 * 0.3]).unwrap()
-    }).collect::<Vec<_>>();
+    let sequence = (0..sequence_length)
+        .map(|i| {
+            Array2::from_shape_vec(
+                (input_size, 1),
+                vec![i as f64 * 0.1, i as f64 * 0.2, i as f64 * 0.3],
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
 
     // Initialize the hidden state and cell state
     let mut hx = Array2::zeros((hidden_size, 1));

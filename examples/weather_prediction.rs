@@ -1,20 +1,28 @@
-use ndarray::{Array2, arr2};
-use rust_lstm::models::lstm_network::LSTMNetwork;
-use rust_lstm::training::LSTMTrainer;
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
+use ndarray::{arr2, Array2};
 use rust_lstm::loss::MSELoss;
+use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::Adam;
+use rust_lstm::training::LSTMTrainer;
 
 /// Weather data with multiple meteorological features
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct WeatherData {
     date: String,
-    temperature: f64,    // °C
-    humidity: f64,       // %
-    pressure: f64,       // hPa
-    wind_speed: f64,     // km/h
-    precipitation: f64,  // mm
-    cloud_cover: f64,    // %
+    temperature: f64,   // °C
+    humidity: f64,      // %
+    pressure: f64,      // hPa
+    wind_speed: f64,    // km/h
+    precipitation: f64, // mm
+    cloud_cover: f64,   // %
 }
 
 /// Multi-feature weather prediction system
@@ -29,7 +37,7 @@ impl WeatherPredictor {
     fn new(sequence_length: usize, hidden_size: usize) -> Self {
         // 6 input features, predicting temperature
         let network = LSTMNetwork::new(6, hidden_size, 2);
-        
+
         Self {
             network,
             trainer: None,
@@ -40,8 +48,8 @@ impl WeatherPredictor {
 
     /// Fit min-max scalers for normalization
     fn fit_scalers(&mut self, data: &[WeatherData]) {
-        let mut mins = vec![f64::INFINITY; 6];
-        let mut maxs = vec![f64::NEG_INFINITY; 6];
+        let mut mins = [f64::INFINITY; 6];
+        let mut maxs = [f64::NEG_INFINITY; 6];
 
         for weather in data {
             let features = self.extract_features(weather);
@@ -75,7 +83,9 @@ impl WeatherPredictor {
     /// Normalize features to [0, 1] range
     fn normalize_features(&self, weather: &WeatherData) -> Array2<f64> {
         let features = self.extract_features(weather);
-        let normalized: Vec<f64> = features.iter().enumerate()
+        let normalized: Vec<f64> = features
+            .iter()
+            .enumerate()
             .map(|(i, &value)| {
                 let (min_val, max_val) = self.feature_scalers[i];
                 (value - min_val) / (max_val - min_val)
@@ -134,8 +144,11 @@ impl WeatherPredictor {
         let split_idx = ((sequences.len() as f64) * (1.0 - validation_split)) as usize;
         let (train_data, val_data) = sequences.split_at(split_idx);
 
-        println!("🎯 Training on {} sequences, validating on {} sequences",
-                train_data.len(), val_data.len());
+        println!(
+            "🎯 Training on {} sequences, validating on {} sequences",
+            train_data.len(),
+            val_data.len()
+        );
 
         let loss_function = MSELoss;
         let optimizer = Adam::new(0.001);
@@ -185,24 +198,24 @@ fn generate_weather_data(days: usize) -> Vec<WeatherData> {
 
     for i in 0..days {
         let day_of_year = (i % 365) as f64;
-        
+
         // Seasonal temperature variation
         let seasonal_temp = 15.0 + 10.0 * (2.0 * std::f64::consts::PI * day_of_year / 365.0).sin();
-        
+
         // Daily temperature variation with some randomness
         let daily_variation = (rand::random::<f64>() - 0.5) * 6.0;
         let temperature = seasonal_temp + daily_variation;
-        
+
         // Humidity inversely correlated with temperature
         let humidity = 70.0 - (temperature - 15.0) * 2.0 + (rand::random::<f64>() - 0.5) * 20.0;
         let humidity = humidity.clamp(20.0, 95.0);
-        
+
         // Pressure with weather patterns
         let pressure = 1013.25 + (rand::random::<f64>() - 0.5) * 30.0;
-        
+
         // Wind speed with some correlation to pressure changes
         let wind_speed = 10.0 + (rand::random::<f64>() * 15.0);
-        
+
         // Precipitation probability based on humidity and pressure
         let precip_prob = (humidity - 50.0) / 100.0 + (1020.0 - pressure) / 50.0;
         let precipitation = if rand::random::<f64>() < precip_prob.max(0.0) {
@@ -210,10 +223,10 @@ fn generate_weather_data(days: usize) -> Vec<WeatherData> {
         } else {
             0.0
         };
-        
+
         // Cloud cover correlated with precipitation and humidity
-        let cloud_cover = (humidity - 30.0) / 70.0 * 100.0 + 
-                         if precipitation > 0.0 { 30.0 } else { 0.0 };
+        let cloud_cover =
+            (humidity - 30.0) / 70.0 * 100.0 + if precipitation > 0.0 { 30.0 } else { 0.0 };
         let cloud_cover = cloud_cover.clamp(0.0, 100.0);
 
         data.push(WeatherData {
@@ -236,13 +249,22 @@ fn main() {
 
     // Generate synthetic weather data
     let weather_data = generate_weather_data(365); // One year of data
-    println!("🌍 Generated {} days of synthetic weather data", weather_data.len());
+    println!(
+        "🌍 Generated {} days of synthetic weather data",
+        weather_data.len()
+    );
 
     // Print sample data
     println!("\n📊 Sample weather data:");
     for (i, weather) in weather_data.iter().take(5).enumerate() {
-        println!("Day {}: Temp={:.1}°C, Humidity={:.0}%, Pressure={:.1}hPa, Precip={:.1}mm",
-                i + 1, weather.temperature, weather.humidity, weather.pressure, weather.precipitation);
+        println!(
+            "Day {}: Temp={:.1}°C, Humidity={:.0}%, Pressure={:.1}hPa, Precip={:.1}mm",
+            i + 1,
+            weather.temperature,
+            weather.humidity,
+            weather.pressure,
+            weather.precipitation
+        );
     }
 
     // Create and train predictor
@@ -251,16 +273,22 @@ fn main() {
 
     // Make temperature predictions
     println!("\n🔮 Temperature predictions for next 5 days:");
-    let recent_data = &weather_data[weather_data.len()-20..]; // Last 20 days
+    let recent_data = &weather_data[weather_data.len() - 20..]; // Last 20 days
 
-    for i in 7..12 { // Predict for days 8-12 of recent data
-        let input_data = &recent_data[i-7..i];
+    for i in 7..12 {
+        // Predict for days 8-12 of recent data
+        let input_data = &recent_data[i - 7..i];
         if let Some(predicted_temp) = predictor.predict_temperature(input_data) {
             let actual_temp = recent_data[i].temperature;
             let error = (predicted_temp - actual_temp).abs();
-            
-            println!("Day {}: Predicted={:.1}°C, Actual={:.1}°C, Error={:.1}°C",
-                    i + 1, predicted_temp, actual_temp, error);
+
+            println!(
+                "Day {}: Predicted={:.1}°C, Actual={:.1}°C, Error={:.1}°C",
+                i + 1,
+                predicted_temp,
+                actual_temp,
+                error
+            );
         }
     }
 
@@ -273,4 +301,4 @@ fn main() {
     println!("\n📈 Annual temperature statistics:");
     println!("Average: {:.1}°C", avg_temp);
     println!("Range: {:.1}°C to {:.1}°C", min_temp, max_temp);
-} 
+}

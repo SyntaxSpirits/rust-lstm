@@ -1,6 +1,6 @@
-use ndarray::Array2;
-use crate::layers::gru_cell::{GRUCell, GRUCellGradients, GRUCellCache};
+use crate::layers::gru_cell::{GRUCell, GRUCellCache, GRUCellGradients};
 use crate::optimizers::Optimizer;
+use ndarray::Array2;
 
 /// Cache for GRU network forward pass
 #[derive(Clone)]
@@ -16,6 +16,12 @@ pub struct LayerDropoutConfig {
     pub recurrent_dropout_rate: f64,
     pub recurrent_variational: bool,
     pub output_dropout_rate: f64,
+}
+
+impl Default for LayerDropoutConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LayerDropoutConfig {
@@ -61,12 +67,12 @@ impl GRUNetwork {
     /// Creates a new multi-layer GRU network
     pub fn new(input_size: usize, hidden_size: usize, num_layers: usize) -> Self {
         let mut cells = Vec::new();
-        
+
         for i in 0..num_layers {
             let layer_input_size = if i == 0 { input_size } else { hidden_size };
             cells.push(GRUCell::new(layer_input_size, hidden_size));
         }
-        
+
         GRUNetwork {
             cells,
             input_size,
@@ -86,7 +92,9 @@ impl GRUNetwork {
 
     pub fn with_recurrent_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
         for cell in &mut self.cells {
-            *cell = cell.clone().with_recurrent_dropout(dropout_rate, variational);
+            *cell = cell
+                .clone()
+                .with_recurrent_dropout(dropout_rate, variational);
         }
         self
     }
@@ -109,15 +117,19 @@ impl GRUNetwork {
 
         for (i, config) in configs.into_iter().enumerate() {
             if config.input_dropout_rate > 0.0 {
-                self.cells[i] = self.cells[i].clone()
+                self.cells[i] = self.cells[i]
+                    .clone()
                     .with_input_dropout(config.input_dropout_rate, config.input_variational);
             }
             if config.recurrent_dropout_rate > 0.0 {
-                self.cells[i] = self.cells[i].clone()
-                    .with_recurrent_dropout(config.recurrent_dropout_rate, config.recurrent_variational);
+                self.cells[i] = self.cells[i].clone().with_recurrent_dropout(
+                    config.recurrent_dropout_rate,
+                    config.recurrent_variational,
+                );
             }
             if config.output_dropout_rate > 0.0 && i < self.num_layers - 1 {
-                self.cells[i] = self.cells[i].clone()
+                self.cells[i] = self.cells[i]
+                    .clone()
                     .with_output_dropout(config.output_dropout_rate);
             }
         }
@@ -157,7 +169,10 @@ impl GRUNetwork {
     }
 
     /// Forward pass for a sequence with caching for training
-    pub fn forward_sequence_with_cache(&mut self, sequence: &[Array2<f64>]) -> (Vec<(Array2<f64>, Vec<Array2<f64>>)>, Vec<GRUNetworkCache>) {
+    pub fn forward_sequence_with_cache(
+        &mut self,
+        sequence: &[Array2<f64>],
+    ) -> (Vec<(Array2<f64>, Vec<Array2<f64>>)>, Vec<GRUNetworkCache>) {
         let mut all_outputs = Vec::new();
         let mut all_caches = Vec::new();
 
@@ -173,7 +188,7 @@ impl GRUNetwork {
 
             for (i, cell) in self.cells.iter_mut().enumerate() {
                 let (hy, cache) = cell.forward_with_cache(&layer_input, &hidden_states[i]);
-                
+
                 hidden_states[i] = hy.clone();
                 step_outputs.push(hy.clone());
                 step_caches.push(cache);
@@ -183,14 +198,20 @@ impl GRUNetwork {
             // The final output is from the last layer
             let final_output = step_outputs.last().unwrap().clone();
             all_outputs.push((final_output, step_outputs));
-            all_caches.push(GRUNetworkCache { caches: step_caches });
+            all_caches.push(GRUNetworkCache {
+                caches: step_caches,
+            });
         }
 
         (all_outputs, all_caches)
     }
 
     /// Backward pass for training
-    pub fn backward(&self, dhy: &Array2<f64>, cache: &GRUNetworkCache) -> (Vec<GRUCellGradients>, Array2<f64>) {
+    pub fn backward(
+        &self,
+        dhy: &Array2<f64>,
+        cache: &GRUNetworkCache,
+    ) -> (Vec<GRUCellGradients>, Array2<f64>) {
         let mut gradients = Vec::new();
         let mut dhx = dhy.clone();
 
@@ -205,7 +226,11 @@ impl GRUNetwork {
     }
 
     /// Update parameters using optimizer
-    pub fn update_parameters<O: Optimizer>(&mut self, gradients: &[GRUCellGradients], optimizer: &mut O) {
+    pub fn update_parameters<O: Optimizer>(
+        &mut self,
+        gradients: &[GRUCellGradients],
+        optimizer: &mut O,
+    ) {
         for (i, (cell, grad)) in self.cells.iter_mut().zip(gradients.iter()).enumerate() {
             cell.update_parameters(grad, optimizer, &format!("layer_{}", i));
         }
@@ -213,7 +238,10 @@ impl GRUNetwork {
 
     /// Initialize zero gradients for all layers
     pub fn zero_gradients(&self) -> Vec<GRUCellGradients> {
-        self.cells.iter().map(|cell| cell.zero_gradients()).collect()
+        self.cells
+            .iter()
+            .map(|cell| cell.zero_gradients())
+            .collect()
     }
 
     /// Get references to cells for inspection
@@ -245,10 +273,7 @@ mod tests {
     fn test_gru_network_forward() {
         let mut network = GRUNetwork::new(2, 3, 2);
         let input = arr2(&[[1.0], [0.5]]);
-        let hidden_states = vec![
-            arr2(&[[0.1], [0.2], [0.3]]),
-            arr2(&[[0.0], [0.1], [0.2]]),
-        ];
+        let hidden_states = vec![arr2(&[[0.1], [0.2], [0.3]]), arr2(&[[0.0], [0.1], [0.2]])];
 
         let outputs = network.forward(&input, &hidden_states);
         assert_eq!(outputs.len(), 2);
@@ -266,10 +291,10 @@ mod tests {
         ];
 
         let (outputs, caches) = network.forward_sequence_with_cache(&sequence);
-        
+
         assert_eq!(outputs.len(), 3);
         assert_eq!(caches.len(), 3);
-        
+
         for (output, _) in &outputs {
             assert_eq!(output.shape(), &[3, 1]);
         }
@@ -283,10 +308,7 @@ mod tests {
             .with_output_dropout(0.1);
 
         let input = arr2(&[[1.0], [0.5]]);
-        let hidden_states = vec![
-            arr2(&[[0.1], [0.2], [0.3]]),
-            arr2(&[[0.0], [0.1], [0.2]]),
-        ];
+        let hidden_states = vec![arr2(&[[0.1], [0.2], [0.3]]), arr2(&[[0.0], [0.1], [0.2]])];
 
         // Test training mode
         network.train();
@@ -307,9 +329,8 @@ mod tests {
             LayerDropoutConfig::new().with_recurrent_dropout(0.2, true),
         ];
 
-        let network = GRUNetwork::new(2, 3, 2)
-            .with_layer_dropout(layer_configs);
+        let network = GRUNetwork::new(2, 3, 2).with_layer_dropout(layer_configs);
 
         assert_eq!(network.cells.len(), 2);
     }
-} 
+}

@@ -1,3 +1,11 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+
 use ndarray::Array2;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 

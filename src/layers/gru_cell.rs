@@ -1,8 +1,8 @@
-use ndarray::Array2;
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::Uniform;
-use crate::utils::sigmoid;
 use crate::layers::dropout::Dropout;
+use crate::utils::sigmoid;
+use ndarray::Array2;
+use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
 
 /// Holds gradients for all GRU cell parameters during backpropagation
 #[derive(Clone)]
@@ -44,19 +44,19 @@ pub struct GRUCell {
     pub w_hr: Array2<f64>,
     pub b_ir: Array2<f64>,
     pub b_hr: Array2<f64>,
-    
+
     // Update gate parameters
     pub w_iz: Array2<f64>,
     pub w_hz: Array2<f64>,
     pub b_iz: Array2<f64>,
     pub b_hz: Array2<f64>,
-    
+
     // New gate parameters
     pub w_ih: Array2<f64>,
     pub w_hh: Array2<f64>,
     pub b_ih: Array2<f64>,
     pub b_hh: Array2<f64>,
-    
+
     pub hidden_size: usize,
     pub input_dropout: Option<Dropout>,
     pub recurrent_dropout: Option<Dropout>,
@@ -74,23 +74,32 @@ impl GRUCell {
         let w_hr = Array2::random((hidden_size, hidden_size), dist);
         let b_ir = Array2::zeros((hidden_size, 1));
         let b_hr = Array2::zeros((hidden_size, 1));
-        
+
         // Update gate weights
         let w_iz = Array2::random((hidden_size, input_size), dist);
         let w_hz = Array2::random((hidden_size, hidden_size), dist);
         let b_iz = Array2::zeros((hidden_size, 1));
         let b_hz = Array2::zeros((hidden_size, 1));
-        
+
         // New gate weights
         let w_ih = Array2::random((hidden_size, input_size), dist);
         let w_hh = Array2::random((hidden_size, hidden_size), dist);
         let b_ih = Array2::zeros((hidden_size, 1));
         let b_hh = Array2::zeros((hidden_size, 1));
 
-        GRUCell { 
-            w_ir, w_hr, b_ir, b_hr,
-            w_iz, w_hz, b_iz, b_hz,
-            w_ih, w_hh, b_ih, b_hh,
+        GRUCell {
+            w_ir,
+            w_hr,
+            b_ir,
+            b_hr,
+            w_iz,
+            w_hz,
+            b_iz,
+            b_hz,
+            w_ih,
+            w_hh,
+            b_ih,
+            b_hh,
             hidden_size,
             input_dropout: None,
             recurrent_dropout: None,
@@ -153,11 +162,15 @@ impl GRUCell {
         hy
     }
 
-    pub fn forward_with_cache(&mut self, input: &Array2<f64>, hx: &Array2<f64>) -> (Array2<f64>, GRUCellCache) {
+    pub fn forward_with_cache(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &Array2<f64>,
+    ) -> (Array2<f64>, GRUCellCache) {
         // Apply input dropout
         let (input_dropped, input_mask) = if let Some(ref mut dropout) = self.input_dropout {
             let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (input.clone(), None)
@@ -166,25 +179,34 @@ impl GRUCell {
         // Apply recurrent dropout to hidden state
         let (hx_dropped, recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
             let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hx.clone(), None)
         };
 
         // Reset gate: r_t = σ(W_ir * x_t + b_ir + W_hr * h_{t-1} + b_hr)
-        let reset_gate = (&self.w_ir.dot(&input_dropped) + &self.b_ir + &self.w_hr.dot(&hx_dropped) + &self.b_hr)
+        let reset_gate = (&self.w_ir.dot(&input_dropped)
+            + &self.b_ir
+            + &self.w_hr.dot(&hx_dropped)
+            + &self.b_hr)
             .map(|&x| sigmoid(x));
 
         // Update gate: z_t = σ(W_iz * x_t + b_iz + W_hz * h_{t-1} + b_hz)
-        let update_gate = (&self.w_iz.dot(&input_dropped) + &self.b_iz + &self.w_hz.dot(&hx_dropped) + &self.b_hz)
+        let update_gate = (&self.w_iz.dot(&input_dropped)
+            + &self.b_iz
+            + &self.w_hz.dot(&hx_dropped)
+            + &self.b_hz)
             .map(|&x| sigmoid(x));
 
         // Reset hidden state: reset_hidden = r_t ⊙ h_{t-1}
         let reset_hidden = &reset_gate * &hx_dropped;
 
         // New gate: h_tilde_t = tanh(W_ih * x_t + b_ih + W_hh * reset_hidden + b_hh)
-        let new_gate = (&self.w_ih.dot(&input_dropped) + &self.b_ih + &self.w_hh.dot(&reset_hidden) + &self.b_hh)
+        let new_gate = (&self.w_ih.dot(&input_dropped)
+            + &self.b_ih
+            + &self.w_hh.dot(&reset_hidden)
+            + &self.b_hh)
             .map(|&x| x.tanh());
 
         // Output: h_t = (1 - z_t) ⊙ h_{t-1} + z_t ⊙ h_tilde_t
@@ -193,7 +215,7 @@ impl GRUCell {
         // Apply output dropout
         let (hy_final, output_mask) = if let Some(ref mut dropout) = self.output_dropout {
             let dropped = dropout.forward(&hy);
-            let mask = dropout.get_last_mask().map(|m| m.clone());
+            let mask = dropout.get_last_mask().cloned();
             (dropped, mask)
         } else {
             (hy, None)
@@ -205,7 +227,7 @@ impl GRUCell {
             reset_gate: reset_gate.clone(),
             update_gate: update_gate.clone(),
             new_gate: new_gate.clone(),
-            reset_hidden: reset_hidden,
+            reset_hidden,
             hy: hy_final.clone(),
             input_dropout_mask: input_mask,
             recurrent_dropout_mask: recurrent_mask,
@@ -216,9 +238,13 @@ impl GRUCell {
     }
 
     /// Backward pass implementing GRU gradient computation with dropout
-    /// 
+    ///
     /// Returns (parameter_gradients, input_gradient, hidden_gradient)
-    pub fn backward(&self, dhy: &Array2<f64>, cache: &GRUCellCache) -> (GRUCellGradients, Array2<f64>, Array2<f64>) {
+    pub fn backward(
+        &self,
+        dhy: &Array2<f64>,
+        cache: &GRUCellCache,
+    ) -> (GRUCellGradients, Array2<f64>, Array2<f64>) {
         // Apply output dropout backward pass using saved mask
         let dhy_dropped = if let Some(ref mask) = cache.output_dropout_mask {
             let keep_prob = if let Some(ref dropout) = self.output_dropout {
@@ -238,17 +264,19 @@ impl GRUCell {
 
         // Gradients for new gate: h_tilde_t = tanh(W_ih * x_t + b_ih + W_hh * reset_hidden + b_hh)
         let d_new_gate_raw = &d_new_gate * cache.new_gate.map(|&x| 1.0 - x.powi(2));
-        
+
         // Gradients for reset hidden: reset_hidden = r_t ⊙ h_{t-1}
         let d_reset_hidden = self.w_hh.t().dot(&d_new_gate_raw);
         let d_reset_gate = &d_reset_hidden * &cache.hx;
         let dhx_from_reset = &d_reset_hidden * &cache.reset_gate;
 
         // Gradients for reset gate: r_t = σ(W_ir * x_t + b_ir + W_hr * h_{t-1} + b_hr)
-        let d_reset_gate_raw = &d_reset_gate * &cache.reset_gate * cache.reset_gate.map(|&x| 1.0 - x);
+        let d_reset_gate_raw =
+            &d_reset_gate * &cache.reset_gate * cache.reset_gate.map(|&x| 1.0 - x);
 
         // Gradients for update gate: z_t = σ(W_iz * x_t + b_iz + W_hz * h_{t-1} + b_hz)
-        let d_update_gate_raw = &d_update_gate * &cache.update_gate * cache.update_gate.map(|&x| 1.0 - x);
+        let d_update_gate_raw =
+            &d_update_gate * &cache.update_gate * cache.update_gate.map(|&x| 1.0 - x);
 
         // Parameter gradients
         let dw_ir = d_reset_gate_raw.dot(&cache.input.t());
@@ -267,19 +295,29 @@ impl GRUCell {
         let db_hh = d_new_gate_raw.clone();
 
         let gradients = GRUCellGradients {
-            w_ir: dw_ir, w_hr: dw_hr, b_ir: db_ir, b_hr: db_hr,
-            w_iz: dw_iz, w_hz: dw_hz, b_iz: db_iz, b_hz: db_hz,
-            w_ih: dw_ih, w_hh: dw_hh, b_ih: db_ih, b_hh: db_hh,
+            w_ir: dw_ir,
+            w_hr: dw_hr,
+            b_ir: db_ir,
+            b_hr: db_hr,
+            w_iz: dw_iz,
+            w_hz: dw_hz,
+            b_iz: db_iz,
+            b_hz: db_hz,
+            w_ih: dw_ih,
+            w_hh: dw_hh,
+            b_ih: db_ih,
+            b_hh: db_hh,
         };
 
         // Input and hidden gradients
-        let mut dx = self.w_ir.t().dot(&d_reset_gate_raw) + 
-                     self.w_iz.t().dot(&d_update_gate_raw) + 
-                     self.w_ih.t().dot(&d_new_gate_raw);
-        
-        let mut dhx = dhx_from_output + dhx_from_reset + 
-                      self.w_hr.t().dot(&d_reset_gate_raw) + 
-                      self.w_hz.t().dot(&d_update_gate_raw);
+        let mut dx = self.w_ir.t().dot(&d_reset_gate_raw)
+            + self.w_iz.t().dot(&d_update_gate_raw)
+            + self.w_ih.t().dot(&d_new_gate_raw);
+
+        let mut dhx = dhx_from_output
+            + dhx_from_reset
+            + self.w_hr.t().dot(&d_reset_gate_raw)
+            + self.w_hz.t().dot(&d_update_gate_raw);
 
         // Apply dropout gradients
         if let Some(ref mask) = cache.input_dropout_mask {
@@ -322,7 +360,12 @@ impl GRUCell {
     }
 
     /// Apply gradients using the provided optimizer
-    pub fn update_parameters<O: crate::optimizers::Optimizer>(&mut self, gradients: &GRUCellGradients, optimizer: &mut O, prefix: &str) {
+    pub fn update_parameters<O: crate::optimizers::Optimizer>(
+        &mut self,
+        gradients: &GRUCellGradients,
+        optimizer: &mut O,
+        prefix: &str,
+    ) {
         optimizer.update(&format!("{}_w_ir", prefix), &mut self.w_ir, &gradients.w_ir);
         optimizer.update(&format!("{}_w_hr", prefix), &mut self.w_hr, &gradients.w_hr);
         optimizer.update(&format!("{}_b_ir", prefix), &mut self.b_ir, &gradients.b_ir);
@@ -391,7 +434,7 @@ mod tests {
         let hx = arr2(&[[0.1], [0.2], [0.3]]);
 
         let (_hy, cache) = cell.forward_with_cache(&input, &hx);
-        
+
         let dhy = arr2(&[[1.0], [1.0], [1.0]]);
         let (gradients, dx, dhx) = cell.backward(&dhy, &cache);
 
@@ -400,4 +443,4 @@ mod tests {
         assert_eq!(dx.shape(), &[input_size, 1]);
         assert_eq!(dhx.shape(), &[hidden_size, 1]);
     }
-} 
+}

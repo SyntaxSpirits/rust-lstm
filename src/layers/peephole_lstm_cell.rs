@@ -6,24 +6,24 @@ pub struct PeepholeLSTMCell {
     // Input gate
     pub w_xi: Array2<f64>,
     pub w_hi: Array2<f64>,
-    pub b_i:  Array2<f64>,
+    pub b_i: Array2<f64>,
     pub w_ci: Array2<f64>,
 
     // Forget gate
     pub w_xf: Array2<f64>,
     pub w_hf: Array2<f64>,
-    pub b_f:  Array2<f64>,
+    pub b_f: Array2<f64>,
     pub w_cf: Array2<f64>,
 
     // Cell update
     pub w_xc: Array2<f64>,
     pub w_hc: Array2<f64>,
-    pub b_c:  Array2<f64>,
+    pub b_c: Array2<f64>,
 
     // Output gate
     pub w_xo: Array2<f64>,
     pub w_ho: Array2<f64>,
-    pub b_o:  Array2<f64>,
+    pub b_o: Array2<f64>,
     pub w_co: Array2<f64>,
 }
 
@@ -53,14 +53,30 @@ impl PeepholeLSTMCell {
         let w_co = Self::random_vector_2d(&dist, &mut rng, hidden_size);
 
         Self {
-            w_xi, w_hi, b_i, w_ci,
-            w_xf, w_hf, b_f, w_cf,
-            w_xc, w_hc, b_c,
-            w_xo, w_ho, b_o, w_co,
+            w_xi,
+            w_hi,
+            b_i,
+            w_ci,
+            w_xf,
+            w_hf,
+            b_f,
+            w_cf,
+            w_xc,
+            w_hc,
+            b_c,
+            w_xo,
+            w_ho,
+            b_o,
+            w_co,
         }
     }
 
-    fn random_matrix(dist: &Normal<f64>, rng: &mut impl rand::Rng, rows: usize, cols: usize) -> Array2<f64> {
+    fn random_matrix(
+        dist: &Normal<f64>,
+        rng: &mut impl rand::Rng,
+        rows: usize,
+        cols: usize,
+    ) -> Array2<f64> {
         let mut arr = Array2::<f64>::zeros((rows, cols));
         for val in arr.iter_mut() {
             *val = dist.sample(rng);
@@ -83,27 +99,19 @@ impl PeepholeLSTMCell {
         h_prev: &Array2<f64>,
         c_prev: &Array2<f64>,
     ) -> (Array2<f64>, Array2<f64>) {
-        let i_t = &self.w_xi.dot(input)
-            + &self.w_hi.dot(h_prev)
-            + &self.b_i
-            + &(&self.w_ci * c_prev);
+        let i_t =
+            &self.w_xi.dot(input) + &self.w_hi.dot(h_prev) + &self.b_i + &(&self.w_ci * c_prev);
         let i_t = i_t.map(|&x| sigmoid(x));
 
-        let f_t = &self.w_xf.dot(input)
-            + &self.w_hf.dot(h_prev)
-            + &self.b_f
-            + &(&self.w_cf * c_prev);
+        let f_t =
+            &self.w_xf.dot(input) + &self.w_hf.dot(h_prev) + &self.b_f + &(&self.w_cf * c_prev);
         let f_t = f_t.map(|&x| sigmoid(x));
 
-        let g_t = (&self.w_xc.dot(input) + &self.w_hc.dot(h_prev) + &self.b_c)
-            .map(|&x| x.tanh());
+        let g_t = (&self.w_xc.dot(input) + &self.w_hc.dot(h_prev) + &self.b_c).map(|&x| x.tanh());
 
         let c_t = f_t * c_prev + i_t * g_t;
 
-        let o_t = &self.w_xo.dot(input)
-            + &self.w_ho.dot(h_prev)
-            + &self.b_o
-            + &(&self.w_co * &c_t);
+        let o_t = &self.w_xo.dot(input) + &self.w_ho.dot(h_prev) + &self.b_o + &(&self.w_co * &c_t);
         let o_t = o_t.map(|&x| sigmoid(x));
 
         let h_t = o_t * c_t.map(|&x| x.tanh());
@@ -142,7 +150,7 @@ mod tests {
         let hidden_size = 2;
         let cell = PeepholeLSTMCell::new(input_size, hidden_size);
 
-        let sequence = vec![
+        let sequence = [
             arr2(&[[0.5], [0.1], [-0.3]]),
             arr2(&[[0.2], [0.8], [0.05]]),
             arr2(&[[0.0], [-0.1], [0.3]]),
@@ -154,8 +162,18 @@ mod tests {
         for (t, x_t) in sequence.iter().enumerate() {
             let (h_t, c_t) = cell.forward(x_t, &h_prev, &c_prev);
 
-            assert_eq!(h_t.shape(), &[hidden_size, 1], "h_t shape mismatch at timestep {}", t);
-            assert_eq!(c_t.shape(), &[hidden_size, 1], "c_t shape mismatch at timestep {}", t);
+            assert_eq!(
+                h_t.shape(),
+                &[hidden_size, 1],
+                "h_t shape mismatch at timestep {}",
+                t
+            );
+            assert_eq!(
+                c_t.shape(),
+                &[hidden_size, 1],
+                "c_t shape mismatch at timestep {}",
+                t
+            );
 
             h_prev = h_t;
             c_prev = c_t;
