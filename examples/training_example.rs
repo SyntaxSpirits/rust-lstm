@@ -12,13 +12,42 @@ use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::{Adam, SGD};
 use rust_lstm::training::{LSTMTrainer, TrainingConfig};
 
-fn demo_training_config() -> TrainingConfig {
+pub(crate) const DEMO_EPOCHS: usize = 5;
+pub(crate) const DEMO_PRINT_EVERY: usize = 1;
+
+pub(crate) fn demo_training_config() -> TrainingConfig {
     TrainingConfig {
-        epochs: 5,
-        print_every: 1,
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
         log_lr_changes: false,
         ..TrainingConfig::default()
     }
+}
+
+pub(crate) fn demo_sgd_trainer(
+    input_size: usize,
+    hidden_size: usize,
+    num_layers: usize,
+) -> LSTMTrainer<MSELoss, SGD> {
+    LSTMTrainer::new(
+        LSTMNetwork::new(input_size, hidden_size, num_layers),
+        MSELoss,
+        SGD::new(0.01),
+    )
+    .with_config(demo_training_config())
+}
+
+pub(crate) fn demo_adam_trainer(
+    input_size: usize,
+    hidden_size: usize,
+    num_layers: usize,
+) -> LSTMTrainer<MSELoss, Adam> {
+    LSTMTrainer::new(
+        LSTMNetwork::new(input_size, hidden_size, num_layers),
+        MSELoss,
+        Adam::new(0.001),
+    )
+    .with_config(demo_training_config())
 }
 
 /// Generate sine wave training data for sequence prediction
@@ -95,9 +124,7 @@ fn main() {
 
     // Training with SGD
     println!("Training with SGD optimizer:");
-    let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
-    let mut trainer_sgd =
-        LSTMTrainer::new(network, MSELoss, SGD::new(0.01)).with_config(demo_training_config());
+    let mut trainer_sgd = demo_sgd_trainer(input_size, hidden_size, num_layers);
 
     trainer_sgd.train(&train_data, Some(&val_data));
 
@@ -118,9 +145,7 @@ fn main() {
 
     // Training with Adam
     println!("Training with Adam optimizer:");
-    let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
-    let mut trainer_adam =
-        LSTMTrainer::new(network, MSELoss, Adam::new(0.001)).with_config(demo_training_config());
+    let mut trainer_adam = demo_adam_trainer(input_size, hidden_size, num_layers);
 
     trainer_adam.train(&train_data, Some(&val_data));
 

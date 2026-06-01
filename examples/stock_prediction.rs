@@ -13,13 +13,24 @@ use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::Adam;
 use rust_lstm::training::{LSTMTrainer, TrainingConfig};
 
-fn demo_training_config() -> TrainingConfig {
+pub(crate) const DEMO_EPOCHS: usize = 2;
+pub(crate) const DEMO_PRINT_EVERY: usize = 1;
+pub(crate) const DEMO_STOCK_DAYS: usize = 80;
+pub(crate) const DEMO_SEQUENCE_LENGTH: usize = 5;
+pub(crate) const DEMO_HIDDEN_SIZE: usize = 8;
+pub(crate) const DEMO_RNG_SEED: u64 = 42;
+
+pub(crate) fn demo_training_config() -> TrainingConfig {
     TrainingConfig {
-        epochs: 2,
-        print_every: 1,
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
         log_lr_changes: false,
         ..TrainingConfig::default()
     }
+}
+
+pub(crate) fn demo_stock_trainer(network: LSTMNetwork) -> LSTMTrainer<MSELoss, Adam> {
+    LSTMTrainer::new(network, MSELoss, Adam::new(0.001)).with_config(demo_training_config())
 }
 
 /// Stock data point with OHLCV (Open, High, Low, Close, Volume)
@@ -147,11 +158,7 @@ impl StockPredictor {
             val_data.len()
         );
 
-        // Create trainer with Adam optimizer
-        let loss_function = MSELoss;
-        let optimizer = Adam::new(0.001);
-        let mut trainer = LSTMTrainer::new(self.network.clone(), loss_function, optimizer)
-            .with_config(demo_training_config());
+        let mut trainer = demo_stock_trainer(self.network.clone());
 
         // Train the model
         trainer.train(train_data, Some(val_data));
@@ -189,7 +196,7 @@ impl StockPredictor {
 
 /// Generate synthetic stock data for demonstration
 fn generate_stock_data(days: usize) -> Vec<StockData> {
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = StdRng::seed_from_u64(DEMO_RNG_SEED);
     let mut data = Vec::new();
     let mut price = 100.0;
     let volume_base = 1_000_000.0;
@@ -226,13 +233,21 @@ fn generate_stock_data(days: usize) -> Vec<StockData> {
     data
 }
 
+#[allow(dead_code)]
+pub(crate) fn demo_stock_closes(days: usize) -> Vec<f64> {
+    generate_stock_data(days)
+        .into_iter()
+        .map(|stock| stock.close)
+        .collect()
+}
+
 fn main() {
     println!("🏦 Stock Price Prediction with LSTM");
     println!("=====================================\n");
     println!("This bounded demo favors quick execution over prediction quality.\n");
 
     // Generate synthetic stock data (in practice, you'd load real data)
-    let stock_data = generate_stock_data(80); // Bounded synthetic dataset for a quick demo
+    let stock_data = generate_stock_data(DEMO_STOCK_DAYS); // Bounded synthetic dataset for a quick demo
     println!(
         "📈 Generated {} days of synthetic stock data",
         stock_data.len()
@@ -250,16 +265,16 @@ fn main() {
     }
 
     // Create and train predictor
-    let mut predictor = StockPredictor::new(5, 8); // 5-day sequences, 8 hidden units
+    let mut predictor = StockPredictor::new(DEMO_SEQUENCE_LENGTH, DEMO_HIDDEN_SIZE);
     predictor.train(&stock_data, 0.2); // 80% train, 20% validation
 
     // Make predictions on recent data
     println!("\n🔮 Making predictions...");
-    let recent_data = &stock_data[stock_data.len() - 10..]; // Last 10 days
+    let recent_window = DEMO_SEQUENCE_LENGTH * 2;
+    let recent_data = &stock_data[stock_data.len() - recent_window..];
 
-    for i in 5..10 {
-        // Predict for days 6-10 of recent data
-        let input_data = &recent_data[i - 5..i];
+    for i in DEMO_SEQUENCE_LENGTH..recent_window {
+        let input_data = &recent_data[i - DEMO_SEQUENCE_LENGTH..i];
         if let Some(predicted_price) = predictor.predict_next_price(input_data) {
             let actual_price = recent_data[i].close;
             let error = (predicted_price - actual_price).abs();
