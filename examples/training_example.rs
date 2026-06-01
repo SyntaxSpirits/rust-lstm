@@ -10,7 +10,16 @@ use ndarray::{arr2, Array2};
 use rust_lstm::loss::MSELoss;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::{Adam, SGD};
-use rust_lstm::training::LSTMTrainer;
+use rust_lstm::training::{LSTMTrainer, TrainingConfig};
+
+fn demo_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: 5,
+        print_every: 1,
+        log_lr_changes: false,
+        ..TrainingConfig::default()
+    }
+}
 
 /// Generate sine wave training data for sequence prediction
 fn generate_sine_data(
@@ -87,7 +96,8 @@ fn main() {
     // Training with SGD
     println!("Training with SGD optimizer:");
     let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
-    let mut trainer_sgd = LSTMTrainer::new(network, MSELoss, SGD::new(0.01));
+    let mut trainer_sgd =
+        LSTMTrainer::new(network, MSELoss, SGD::new(0.01)).with_config(demo_training_config());
 
     trainer_sgd.train(&train_data, Some(&val_data));
 
@@ -109,7 +119,8 @@ fn main() {
     // Training with Adam
     println!("Training with Adam optimizer:");
     let network = LSTMNetwork::new(input_size, hidden_size, num_layers);
-    let mut trainer_adam = LSTMTrainer::new(network, MSELoss, Adam::new(0.001));
+    let mut trainer_adam =
+        LSTMTrainer::new(network, MSELoss, Adam::new(0.001)).with_config(demo_training_config());
 
     trainer_adam.train(&train_data, Some(&val_data));
 
