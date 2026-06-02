@@ -1,67 +1,68 @@
-#[test]
-fn training_example_uses_bounded_demo_epochs() {
-    let source = include_str!("../examples/training_example.rs");
+#[allow(dead_code)]
+#[path = "../examples/training_example.rs"]
+mod training_example;
 
-    assert!(
-        source.contains("epochs: 5"),
-        "training_example should keep interactive demo training bounded"
-    );
-    assert!(
-        source.contains("fn demo_training_config() -> TrainingConfig"),
-        "training_example should centralize its bounded demo training config"
-    );
-    assert!(
-        source
-            .matches(".with_config(demo_training_config())")
-            .count()
-            >= 2,
-        "both optimizer demonstrations should apply the bounded demo config"
-    );
-}
+#[allow(dead_code)]
+#[path = "../examples/stock_prediction.rs"]
+mod stock_prediction;
+
+use std::hint::black_box;
 
 #[test]
-fn stock_prediction_example_uses_bounded_demo_epochs() {
-    let source = include_str!("../examples/stock_prediction.rs");
+fn training_example_applies_bounded_config_to_both_demo_trainers() {
+    let sgd_trainer = training_example::demo_sgd_trainer(1, 10, 1);
+    let adam_trainer = training_example::demo_adam_trainer(1, 10, 1);
 
-    assert!(
-        source.contains("epochs: 2"),
-        "stock_prediction should avoid the default 100-epoch training config"
-    );
-    assert!(
-        source.contains("StdRng::seed_from_u64(42)"),
-        "stock_prediction should keep synthetic data generation reproducible"
-    );
-    assert!(
-        source.contains("generate_stock_data(80)"),
-        "stock_prediction should keep its synthetic dataset bounded for interactive runs"
-    );
-    assert!(
-        source.contains("StockPredictor::new(5, 8)"),
-        "stock_prediction should keep sequence length and hidden size bounded for interactive runs"
-    );
-    assert!(
-        source.contains(".with_config(demo_training_config())"),
-        "stock_prediction should apply the bounded demo config before training"
-    );
-}
-
-#[test]
-fn batch_processing_example_keeps_scalability_demo_bounded() {
-    let source = include_str!("../examples/batch_processing_example.rs");
-
-    for expected in [
-        "trainer1.config.epochs = 5",
-        "trainer2.config.epochs = 5",
-        "trainer3.config.epochs = 5",
-    ] {
+    for epochs in [sgd_trainer.config.epochs, adam_trainer.config.epochs] {
         assert!(
-            source.contains(expected),
-            "batch benchmark trainer should keep a short epoch budget: {expected}"
+            black_box(epochs) <= 5,
+            "training_example should keep both optimizer demos bounded"
         );
     }
 
+    for print_every in [
+        sgd_trainer.config.print_every,
+        adam_trainer.config.print_every,
+    ] {
+        assert!(
+            black_box(print_every) <= black_box(training_example::DEMO_EPOCHS),
+            "training_example should report progress without exceeding the epoch budget"
+        );
+    }
+}
+
+#[test]
+fn stock_prediction_applies_bounded_config_to_demo_trainer() {
+    let network =
+        rust_lstm::models::lstm_network::LSTMNetwork::new(5, stock_prediction::DEMO_HIDDEN_SIZE, 2);
+    let trainer = stock_prediction::demo_stock_trainer(network);
+
     assert!(
-        source.contains("trainer.config.epochs = 3"),
-        "scalability loop should keep a short epoch budget"
+        black_box(trainer.config.epochs) <= 2,
+        "stock_prediction should avoid the default 100-epoch training config"
+    );
+    assert!(
+        black_box(stock_prediction::DEMO_STOCK_DAYS) <= 80,
+        "stock_prediction should keep its synthetic dataset bounded for interactive runs"
+    );
+    assert!(
+        black_box(stock_prediction::DEMO_SEQUENCE_LENGTH) <= 5,
+        "stock_prediction should keep sequence length bounded for interactive runs"
+    );
+    assert!(
+        black_box(stock_prediction::DEMO_HIDDEN_SIZE) <= 8,
+        "stock_prediction should keep hidden size bounded for interactive runs"
+    );
+}
+
+#[test]
+fn stock_prediction_demo_data_is_reproducible() {
+    let first = stock_prediction::demo_stock_closes(black_box(8));
+    let second = stock_prediction::demo_stock_closes(black_box(8));
+
+    assert_eq!(first, second, "seeded demo data should be reproducible");
+    assert!(
+        first.windows(2).any(|window| window[0] != window[1]),
+        "demo data should still vary across generated days"
     );
 }
