@@ -7,10 +7,20 @@
 #![allow(unused_comparisons)]
 
 use ndarray::{arr2, Array2};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rust_lstm::loss::MSELoss;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::Adam;
-use rust_lstm::training::LSTMTrainer;
+use rust_lstm::training::{LSTMTrainer, TrainingConfig};
+
+fn demo_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: 2,
+        print_every: 1,
+        log_lr_changes: false,
+        ..TrainingConfig::default()
+    }
+}
 
 /// Stock data point with OHLCV (Open, High, Low, Close, Volume)
 #[derive(Debug, Clone)]
@@ -140,7 +150,8 @@ impl StockPredictor {
         // Create trainer with Adam optimizer
         let loss_function = MSELoss;
         let optimizer = Adam::new(0.001);
-        let mut trainer = LSTMTrainer::new(self.network.clone(), loss_function, optimizer);
+        let mut trainer = LSTMTrainer::new(self.network.clone(), loss_function, optimizer)
+            .with_config(demo_training_config());
 
         // Train the model
         trainer.train(train_data, Some(val_data));
@@ -178,6 +189,7 @@ impl StockPredictor {
 
 /// Generate synthetic stock data for demonstration
 fn generate_stock_data(days: usize) -> Vec<StockData> {
+    let mut rng = StdRng::seed_from_u64(42);
     let mut data = Vec::new();
     let mut price = 100.0;
     let volume_base = 1_000_000.0;
@@ -186,19 +198,19 @@ fn generate_stock_data(days: usize) -> Vec<StockData> {
         // Random walk with trend and volatility
         let trend = 0.001; // Slight upward trend
         let volatility = 0.02;
-        let random_change = (rand::random::<f64>() - 0.5) * volatility;
+        let random_change = (rng.gen::<f64>() - 0.5) * volatility;
 
         price *= 1.0 + trend + random_change;
         price = price.max(1.0); // Prevent negative prices
 
         // Generate OHLC based on closing price
         let daily_volatility = 0.005;
-        let high = price * (1.0 + rand::random::<f64>() * daily_volatility);
-        let low = price * (1.0 - rand::random::<f64>() * daily_volatility);
-        let open = low + (high - low) * rand::random::<f64>();
+        let high = price * (1.0 + rng.gen::<f64>() * daily_volatility);
+        let low = price * (1.0 - rng.gen::<f64>() * daily_volatility);
+        let open = low + (high - low) * rng.gen::<f64>();
 
         // Volume with some correlation to price movement
-        let volume_factor = 0.8 + 0.4 * rand::random::<f64>();
+        let volume_factor = 0.8 + 0.4 * rng.gen::<f64>();
         let volume = volume_base * volume_factor;
 
         data.push(StockData {
@@ -217,9 +229,10 @@ fn generate_stock_data(days: usize) -> Vec<StockData> {
 fn main() {
     println!("🏦 Stock Price Prediction with LSTM");
     println!("=====================================\n");
+    println!("This bounded demo favors quick execution over prediction quality.\n");
 
     // Generate synthetic stock data (in practice, you'd load real data)
-    let stock_data = generate_stock_data(500); // 500 days of data
+    let stock_data = generate_stock_data(80); // Bounded synthetic dataset for a quick demo
     println!(
         "📈 Generated {} days of synthetic stock data",
         stock_data.len()
@@ -237,16 +250,16 @@ fn main() {
     }
 
     // Create and train predictor
-    let mut predictor = StockPredictor::new(20, 50); // 20-day sequences, 50 hidden units
+    let mut predictor = StockPredictor::new(5, 8); // 5-day sequences, 8 hidden units
     predictor.train(&stock_data, 0.2); // 80% train, 20% validation
 
     // Make predictions on recent data
     println!("\n🔮 Making predictions...");
-    let recent_data = &stock_data[stock_data.len() - 30..]; // Last 30 days
+    let recent_data = &stock_data[stock_data.len() - 10..]; // Last 10 days
 
-    for i in 20..25 {
-        // Predict for days 21-25 of recent data
-        let input_data = &recent_data[i - 20..i];
+    for i in 5..10 {
+        // Predict for days 6-10 of recent data
+        let input_data = &recent_data[i - 5..i];
         if let Some(predicted_price) = predictor.predict_next_price(input_data) {
             let actual_price = recent_data[i].close;
             let error = (predicted_price - actual_price).abs();
