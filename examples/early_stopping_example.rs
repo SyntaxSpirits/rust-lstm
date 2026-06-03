@@ -11,6 +11,89 @@ use rust_lstm::{
     create_basic_trainer, EarlyStoppingConfig, EarlyStoppingMetric, LSTMNetwork, TrainingConfig,
 };
 
+pub(crate) const DEMO_EPOCHS: usize = 6;
+pub(crate) const DEMO_PRINT_EVERY: usize = 1;
+pub(crate) const MAX_DEMO_PATIENCE: usize = 4;
+pub(crate) const DEMO_TRAIN_SEQUENCES: usize = 8;
+pub(crate) const DEMO_VALIDATION_SEQUENCES: usize = 3;
+pub(crate) const DEMO_SEQUENCE_LENGTH: usize = 5;
+
+type SequencePair = (Vec<Array2<f64>>, Vec<Array2<f64>>);
+
+fn demo_early_stopping_config(
+    patience: usize,
+    min_delta: f64,
+    restore_best_weights: bool,
+    monitor: EarlyStoppingMetric,
+) -> EarlyStoppingConfig {
+    EarlyStoppingConfig {
+        patience,
+        min_delta,
+        restore_best_weights,
+        monitor,
+    }
+}
+
+pub(crate) fn validation_early_stopping_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        clip_gradient: Some(1.0),
+        log_lr_changes: false,
+        early_stopping: Some(demo_early_stopping_config(
+            3,
+            1e-4,
+            true,
+            EarlyStoppingMetric::ValidationLoss,
+        )),
+    }
+}
+
+pub(crate) fn train_loss_early_stopping_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        clip_gradient: Some(1.0),
+        log_lr_changes: false,
+        early_stopping: Some(demo_early_stopping_config(
+            3,
+            0.1,
+            true,
+            EarlyStoppingMetric::TrainLoss,
+        )),
+    }
+}
+
+pub(crate) fn no_weight_restoration_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        clip_gradient: Some(1.0),
+        log_lr_changes: false,
+        early_stopping: Some(demo_early_stopping_config(
+            3,
+            1e-4,
+            false,
+            EarlyStoppingMetric::ValidationLoss,
+        )),
+    }
+}
+
+pub(crate) fn custom_patience_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        clip_gradient: Some(1.0),
+        log_lr_changes: false,
+        early_stopping: Some(demo_early_stopping_config(
+            MAX_DEMO_PATIENCE,
+            1e-6,
+            true,
+            EarlyStoppingMetric::ValidationLoss,
+        )),
+    }
+}
+
 fn main() {
     println!("Early Stopping Demonstration");
     println!("================================\n");
@@ -41,25 +124,11 @@ fn demonstrate_validation_early_stopping(
 
     let network = LSTMNetwork::new(1, 8, 1);
 
-    // Configure early stopping with default settings (validation loss monitoring)
-    let early_stopping_config = EarlyStoppingConfig {
-        patience: 5,
-        min_delta: 1e-4,
-        restore_best_weights: true,
-        monitor: EarlyStoppingMetric::ValidationLoss,
-    };
-
-    let training_config = TrainingConfig {
-        epochs: 100, // Will likely stop early
-        print_every: 1,
-        clip_gradient: Some(1.0),
-        log_lr_changes: false,
-        early_stopping: Some(early_stopping_config),
-    };
+    let training_config = validation_early_stopping_training_config();
 
     let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
 
-    println!("Training with validation loss monitoring (patience=5)...");
+    println!("Training with validation loss monitoring (patience=3)...");
     trainer.train(train_data, Some(val_data));
 
     // Show final metrics
@@ -83,25 +152,11 @@ fn demonstrate_train_loss_early_stopping(
 
     let network = LSTMNetwork::new(1, 8, 1);
 
-    // Configure early stopping to monitor training loss
-    let early_stopping_config = EarlyStoppingConfig {
-        patience: 8,
-        min_delta: 1e-5,
-        restore_best_weights: true,
-        monitor: EarlyStoppingMetric::TrainLoss,
-    };
-
-    let training_config = TrainingConfig {
-        epochs: 100,
-        print_every: 1,
-        clip_gradient: Some(1.0),
-        log_lr_changes: false,
-        early_stopping: Some(early_stopping_config),
-    };
+    let training_config = train_loss_early_stopping_training_config();
 
     let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
 
-    println!("Training with training loss monitoring (patience=8)...");
+    println!("Training with training loss monitoring (patience=3)...");
     trainer.train(train_data, Some(val_data));
 
     if let Some(final_metrics) = trainer.get_latest_metrics() {
@@ -124,21 +179,7 @@ fn demonstrate_no_weight_restoration(
 
     let network = LSTMNetwork::new(1, 8, 1);
 
-    // Configure early stopping without restoring best weights
-    let early_stopping_config = EarlyStoppingConfig {
-        patience: 5,
-        min_delta: 1e-4,
-        restore_best_weights: false, // Don't restore best weights
-        monitor: EarlyStoppingMetric::ValidationLoss,
-    };
-
-    let training_config = TrainingConfig {
-        epochs: 100,
-        print_every: 1,
-        clip_gradient: Some(1.0),
-        log_lr_changes: false,
-        early_stopping: Some(early_stopping_config),
-    };
+    let training_config = no_weight_restoration_training_config();
 
     let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
 
@@ -161,30 +202,16 @@ fn demonstrate_custom_patience(
     train_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
     val_data: &[(Vec<Array2<f64>>, Vec<Array2<f64>>)],
 ) {
-    println!("4. EARLY STOPPING WITH HIGH PATIENCE");
-    println!("====================================");
+    println!("4. EARLY STOPPING WITH BOUNDED HIGHER PATIENCE");
+    println!("================================================");
 
     let network = LSTMNetwork::new(1, 8, 1);
 
-    // Configure early stopping with higher patience
-    let early_stopping_config = EarlyStoppingConfig {
-        patience: 15,    // More patient
-        min_delta: 1e-6, // Smaller improvement threshold
-        restore_best_weights: true,
-        monitor: EarlyStoppingMetric::ValidationLoss,
-    };
-
-    let training_config = TrainingConfig {
-        epochs: 100,
-        print_every: 2,
-        clip_gradient: Some(1.0),
-        log_lr_changes: false,
-        early_stopping: Some(early_stopping_config),
-    };
+    let training_config = custom_patience_training_config();
 
     let mut trainer = create_basic_trainer(network, 0.01).with_config(training_config);
 
-    println!("Training with high patience (patience=15)...");
+    println!("Training with bounded higher patience (patience=4)...");
     trainer.train(train_data, Some(val_data));
 
     if let Some(final_metrics) = trainer.get_latest_metrics() {
@@ -199,20 +226,17 @@ fn demonstrate_custom_patience(
 
 /// Generate synthetic data that will cause overfitting
 /// This creates a simple pattern that's easy to memorize but doesn't generalize well
-fn generate_overfitting_data() -> (
-    Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)>,
-    Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)>,
-) {
+pub(crate) fn generate_overfitting_data() -> (Vec<SequencePair>, Vec<SequencePair>) {
     let mut train_data = Vec::new();
     let mut val_data = Vec::new();
 
     // Create training data - simple sine wave with noise
-    for i in 0..20 {
+    for i in 0..DEMO_TRAIN_SEQUENCES {
         let mut inputs = Vec::new();
         let mut targets = Vec::new();
 
         let phase = i as f64 * 0.1;
-        for t in 0..10 {
+        for t in 0..DEMO_SEQUENCE_LENGTH {
             let x = (t as f64 * 0.3 + phase).sin();
             let y = ((t + 1) as f64 * 0.3 + phase).sin(); // Next value
 
@@ -224,12 +248,12 @@ fn generate_overfitting_data() -> (
     }
 
     // Create validation data - different phase to test generalization
-    for i in 0..5 {
+    for i in 0..DEMO_VALIDATION_SEQUENCES {
         let mut inputs = Vec::new();
         let mut targets = Vec::new();
 
         let phase = (i as f64 + 100.0) * 0.1; // Different phase
-        for t in 0..10 {
+        for t in 0..DEMO_SEQUENCE_LENGTH {
             let x = (t as f64 * 0.3 + phase).sin();
             let y = ((t + 1) as f64 * 0.3 + phase).sin();
 
