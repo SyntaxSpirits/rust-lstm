@@ -10,6 +10,10 @@ mod stock_prediction;
 #[path = "../examples/early_stopping_example.rs"]
 mod early_stopping_example;
 
+#[allow(dead_code)]
+#[path = "../examples/learning_rate_scheduling.rs"]
+mod learning_rate_scheduling;
+
 use std::hint::black_box;
 
 #[test]
@@ -126,5 +130,102 @@ fn early_stopping_example_uses_small_deterministic_fixture() {
             .chain(first_val.iter())
             .all(|(inputs, targets)| inputs.len() <= 5 && targets.len() <= 5),
         "early_stopping_example should keep each fixture sequence bounded"
+    );
+}
+
+#[test]
+fn learning_rate_scheduling_applies_bounded_configs_to_all_demo_paths() {
+    let configs = [
+        learning_rate_scheduling::step_lr_training_config(),
+        learning_rate_scheduling::one_cycle_training_config(),
+        learning_rate_scheduling::cosine_annealing_training_config(),
+        learning_rate_scheduling::exponential_decay_training_config(),
+        learning_rate_scheduling::reduce_on_plateau_training_config(),
+        learning_rate_scheduling::scheduler_comparison_training_config(),
+    ];
+
+    for config in configs {
+        assert!(
+            black_box(config.epochs) <= 5,
+            "learning_rate_scheduling should keep every demo training path bounded"
+        );
+        assert!(
+            black_box(config.print_every) > 0,
+            "learning_rate_scheduling progress logging should stay enabled"
+        );
+        assert!(
+            black_box(config.print_every) <= black_box(config.epochs),
+            "learning_rate_scheduling progress logging should not exceed the epoch budget"
+        );
+        assert!(
+            config.early_stopping.is_none(),
+            "learning_rate_scheduling examples should avoid hidden early-stopping work"
+        );
+    }
+
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_HIDDEN_SIZE) <= 4,
+        "learning_rate_scheduling should keep demo hidden size bounded"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_COMPARISON_HIDDEN_SIZE) <= 4,
+        "learning_rate_scheduling should keep comparison hidden size bounded"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_STEP_PERIOD) > 0,
+        "step scheduler period should be non-zero"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_STEP_PERIOD)
+            <= black_box(learning_rate_scheduling::DEMO_STEP_EPOCHS),
+        "step scheduler period should fit inside the demo epoch budget"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_COSINE_PERIOD) > 0,
+        "cosine scheduler period should be non-zero"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_COSINE_PERIOD)
+            <= black_box(learning_rate_scheduling::DEMO_COSINE_EPOCHS),
+        "cosine scheduler period should fit inside the demo epoch budget"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_PLATEAU_PATIENCE) > 0,
+        "plateau patience should be non-zero"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_PLATEAU_PATIENCE)
+            <= black_box(learning_rate_scheduling::DEMO_PLATEAU_EPOCHS),
+        "plateau patience should fit inside the demo epoch budget"
+    );
+}
+
+#[test]
+fn learning_rate_scheduling_uses_small_deterministic_fixture() {
+    let first = learning_rate_scheduling::generate_sine_wave_data(black_box(4), 0.0);
+    let second = learning_rate_scheduling::generate_sine_wave_data(black_box(4), 0.0);
+
+    assert_eq!(
+        first, second,
+        "demo sine-wave fixture should be deterministic"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_TRAIN_SEQUENCES) <= 16,
+        "learning_rate_scheduling should keep training sequence count bounded"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_VAL_SEQUENCES) <= 4,
+        "learning_rate_scheduling should keep validation sequence count bounded"
+    );
+    assert!(
+        black_box(learning_rate_scheduling::DEMO_SEQUENCE_LENGTH) <= 6,
+        "learning_rate_scheduling should keep each fixture sequence bounded"
+    );
+    assert!(
+        first.iter().all(|(inputs, targets)| {
+            inputs.len() == learning_rate_scheduling::DEMO_SEQUENCE_LENGTH
+                && targets.len() == learning_rate_scheduling::DEMO_SEQUENCE_LENGTH
+        }),
+        "generated fixtures should use the public demo sequence-length bound"
     );
 }
