@@ -22,6 +22,10 @@ mod advanced_lr_scheduling;
 #[path = "../examples/dropout_example.rs"]
 mod dropout_example;
 
+#[allow(dead_code)]
+#[path = "../examples/weather_prediction.rs"]
+mod weather_prediction;
+
 use std::hint::black_box;
 
 #[test]
@@ -385,5 +389,76 @@ fn advanced_lr_scheduling_uses_small_deterministic_fixture() {
                 && targets.len() == advanced_lr_scheduling::DEMO_SEQUENCE_LENGTH
         }),
         "generated fixtures should use the public demo sequence-length bound"
+    );
+}
+
+#[test]
+fn weather_prediction_applies_bounded_training_config() {
+    let config = weather_prediction::weather_training_config();
+
+    assert!(
+        black_box(config.epochs) <= 4,
+        "weather_prediction should avoid long default training runs"
+    );
+    assert!(
+        black_box(config.print_every) > 0,
+        "weather_prediction progress logging should stay enabled"
+    );
+    assert!(
+        black_box(config.print_every) <= black_box(config.epochs),
+        "weather_prediction progress logging should not exceed the epoch budget"
+    );
+    assert!(
+        config.early_stopping.is_none(),
+        "weather_prediction should avoid hidden early-stopping work"
+    );
+    assert!(
+        black_box(weather_prediction::DEMO_WEATHER_DAYS) <= 80,
+        "weather_prediction should keep its synthetic dataset bounded"
+    );
+    assert!(
+        black_box(weather_prediction::DEMO_SEQUENCE_LENGTH) <= 5,
+        "weather_prediction should keep each sequence bounded"
+    );
+    assert!(
+        black_box(weather_prediction::DEMO_HIDDEN_SIZE) <= 8,
+        "weather_prediction should keep hidden size bounded"
+    );
+    assert!(
+        black_box(weather_prediction::DEMO_RECENT_DAYS)
+            >= black_box(
+                weather_prediction::DEMO_SEQUENCE_LENGTH + weather_prediction::DEMO_NUM_PREDICTIONS,
+            ),
+        "weather_prediction should keep enough recent days for every preview prediction"
+    );
+    assert!(
+        black_box(weather_prediction::DEMO_WEATHER_DAYS)
+            >= black_box(weather_prediction::DEMO_RECENT_DAYS),
+        "weather_prediction dataset should cover the preview prediction window"
+    );
+}
+
+#[test]
+fn weather_prediction_demo_data_is_reproducible() {
+    let first = weather_prediction::generate_weather_data(black_box(12));
+    let second = weather_prediction::generate_weather_data(black_box(12));
+
+    assert_eq!(
+        first, second,
+        "weather demo fixture should be deterministic"
+    );
+    assert!(
+        first.windows(2).any(|window| window[0] != window[1]),
+        "weather demo fixture should vary across generated days"
+    );
+    assert!(
+        first.iter().all(|weather| {
+            weather.humidity >= 20.0
+                && weather.humidity <= 95.0
+                && weather.cloud_cover >= 0.0
+                && weather.cloud_cover <= 100.0
+                && weather.precipitation >= 0.0
+        }),
+        "generated weather fixture should keep bounded meteorological values"
     );
 }

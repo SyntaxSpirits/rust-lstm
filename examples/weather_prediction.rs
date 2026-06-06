@@ -7,22 +7,32 @@
 #![allow(unused_comparisons)]
 
 use ndarray::{arr2, Array2};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rust_lstm::loss::MSELoss;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::Adam;
-use rust_lstm::training::LSTMTrainer;
+use rust_lstm::training::{LSTMTrainer, TrainingConfig};
+
+pub const DEMO_WEATHER_DAYS: usize = 80;
+pub const DEMO_SEQUENCE_LENGTH: usize = 5;
+pub const DEMO_HIDDEN_SIZE: usize = 8;
+pub const DEMO_EPOCHS: usize = 4;
+pub const DEMO_PRINT_EVERY: usize = 1;
+pub const DEMO_NUM_PREDICTIONS: usize = 5;
+pub const DEMO_RECENT_DAYS: usize = DEMO_SEQUENCE_LENGTH + DEMO_NUM_PREDICTIONS;
+pub const DEMO_RANDOM_SEED: u64 = 42;
 
 /// Weather data with multiple meteorological features
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
-struct WeatherData {
-    date: String,
-    temperature: f64,   // °C
-    humidity: f64,      // %
-    pressure: f64,      // hPa
-    wind_speed: f64,    // km/h
-    precipitation: f64, // mm
-    cloud_cover: f64,   // %
+pub struct WeatherData {
+    pub date: String,
+    pub temperature: f64,   // °C
+    pub humidity: f64,      // %
+    pub pressure: f64,      // hPa
+    pub wind_speed: f64,    // km/h
+    pub precipitation: f64, // mm
+    pub cloud_cover: f64,   // %
 }
 
 /// Multi-feature weather prediction system
@@ -154,11 +164,7 @@ impl WeatherPredictor {
         let optimizer = Adam::new(0.001);
         let mut trainer = LSTMTrainer::new(self.network.clone(), loss_function, optimizer);
 
-        // Configure training for quicker demo
-        let mut config = rust_lstm::training::TrainingConfig::default();
-        config.epochs = 20; // Reduced from 100 for demo
-        config.print_every = 5; // Print more frequently
-        trainer = trainer.with_config(config);
+        trainer = trainer.with_config(weather_training_config());
 
         trainer.train(train_data, Some(val_data));
 
@@ -192,8 +198,17 @@ impl WeatherPredictor {
     }
 }
 
+pub fn weather_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        ..TrainingConfig::default()
+    }
+}
+
 /// Generate realistic weather data with seasonal patterns
-fn generate_weather_data(days: usize) -> Vec<WeatherData> {
+pub fn generate_weather_data(days: usize) -> Vec<WeatherData> {
+    let mut rng = StdRng::seed_from_u64(DEMO_RANDOM_SEED);
     let mut data = Vec::new();
 
     for i in 0..days {
@@ -203,23 +218,23 @@ fn generate_weather_data(days: usize) -> Vec<WeatherData> {
         let seasonal_temp = 15.0 + 10.0 * (2.0 * std::f64::consts::PI * day_of_year / 365.0).sin();
 
         // Daily temperature variation with some randomness
-        let daily_variation = (rand::random::<f64>() - 0.5) * 6.0;
+        let daily_variation = (rng.gen::<f64>() - 0.5) * 6.0;
         let temperature = seasonal_temp + daily_variation;
 
         // Humidity inversely correlated with temperature
-        let humidity = 70.0 - (temperature - 15.0) * 2.0 + (rand::random::<f64>() - 0.5) * 20.0;
+        let humidity = 70.0 - (temperature - 15.0) * 2.0 + (rng.gen::<f64>() - 0.5) * 20.0;
         let humidity = humidity.clamp(20.0, 95.0);
 
         // Pressure with weather patterns
-        let pressure = 1013.25 + (rand::random::<f64>() - 0.5) * 30.0;
+        let pressure = 1013.25 + (rng.gen::<f64>() - 0.5) * 30.0;
 
         // Wind speed with some correlation to pressure changes
-        let wind_speed = 10.0 + (rand::random::<f64>() * 15.0);
+        let wind_speed = 10.0 + (rng.gen::<f64>() * 15.0);
 
         // Precipitation probability based on humidity and pressure
         let precip_prob = (humidity - 50.0) / 100.0 + (1020.0 - pressure) / 50.0;
-        let precipitation = if rand::random::<f64>() < precip_prob.max(0.0) {
-            rand::random::<f64>() * 15.0 // 0-15mm
+        let precipitation = if rng.gen::<f64>() < precip_prob.max(0.0) {
+            rng.gen::<f64>() * 15.0 // 0-15mm
         } else {
             0.0
         };
@@ -248,7 +263,7 @@ fn main() {
     println!("===========================================\n");
 
     // Generate synthetic weather data
-    let weather_data = generate_weather_data(365); // One year of data
+    let weather_data = generate_weather_data(DEMO_WEATHER_DAYS);
     println!(
         "🌍 Generated {} days of synthetic weather data",
         weather_data.len()
@@ -268,16 +283,15 @@ fn main() {
     }
 
     // Create and train predictor
-    let mut predictor = WeatherPredictor::new(7, 64); // 7-day sequences, 64 hidden units
+    let mut predictor = WeatherPredictor::new(DEMO_SEQUENCE_LENGTH, DEMO_HIDDEN_SIZE);
     predictor.train(&weather_data, 0.2); // 80% train, 20% validation
 
     // Make temperature predictions
     println!("\n🔮 Temperature predictions for next 5 days:");
-    let recent_data = &weather_data[weather_data.len() - 20..]; // Last 20 days
+    let recent_data = &weather_data[weather_data.len() - DEMO_RECENT_DAYS..];
 
-    for i in 7..12 {
-        // Predict for days 8-12 of recent data
-        let input_data = &recent_data[i - 7..i];
+    for i in DEMO_SEQUENCE_LENGTH..DEMO_SEQUENCE_LENGTH + DEMO_NUM_PREDICTIONS {
+        let input_data = &recent_data[i - DEMO_SEQUENCE_LENGTH..i];
         if let Some(predicted_temp) = predictor.predict_temperature(input_data) {
             let actual_temp = recent_data[i].temperature;
             let error = (predicted_temp - actual_temp).abs();
