@@ -14,6 +14,10 @@ mod early_stopping_example;
 #[path = "../examples/learning_rate_scheduling.rs"]
 mod learning_rate_scheduling;
 
+#[allow(dead_code)]
+#[path = "../examples/advanced_lr_scheduling.rs"]
+mod advanced_lr_scheduling;
+
 use std::hint::black_box;
 
 #[test]
@@ -225,6 +229,98 @@ fn learning_rate_scheduling_uses_small_deterministic_fixture() {
         first.iter().all(|(inputs, targets)| {
             inputs.len() == learning_rate_scheduling::DEMO_SEQUENCE_LENGTH
                 && targets.len() == learning_rate_scheduling::DEMO_SEQUENCE_LENGTH
+        }),
+        "generated fixtures should use the public demo sequence-length bound"
+    );
+}
+
+#[test]
+fn advanced_lr_scheduling_applies_bounded_configs_to_all_demo_paths() {
+    let configs = [
+        advanced_lr_scheduling::polynomial_decay_training_config(),
+        advanced_lr_scheduling::cyclical_lr_training_config(),
+        advanced_lr_scheduling::warmup_scheduler_training_config(),
+        advanced_lr_scheduling::advanced_training_config(),
+    ];
+
+    for config in configs {
+        assert!(
+            black_box(config.epochs) <= 5,
+            "advanced_lr_scheduling should keep every demo training path bounded"
+        );
+        assert!(
+            black_box(config.print_every) > 0,
+            "advanced_lr_scheduling progress logging should stay enabled"
+        );
+        assert!(
+            black_box(config.print_every) <= black_box(config.epochs),
+            "advanced_lr_scheduling progress logging should not exceed the epoch budget"
+        );
+        assert!(
+            config.early_stopping.is_none(),
+            "advanced_lr_scheduling examples should avoid hidden early-stopping work"
+        );
+    }
+
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_HIDDEN_SIZE) <= 4,
+        "advanced_lr_scheduling should keep demo hidden size bounded"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_ADVANCED_HIDDEN_SIZE) <= 6,
+        "advanced_lr_scheduling should keep advanced demo hidden size bounded"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_POLYNOMIAL_ITERS)
+            <= black_box(advanced_lr_scheduling::DEMO_POLYNOMIAL_EPOCHS),
+        "polynomial scheduler iterations should fit inside the demo epoch budget"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_CYCLICAL_STEP_SIZE)
+            <= black_box(advanced_lr_scheduling::DEMO_CYCLICAL_EPOCHS),
+        "cyclical step size should fit inside the demo epoch budget"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_WARMUP_EPOCH_COUNT)
+            <= black_box(advanced_lr_scheduling::DEMO_WARMUP_EPOCHS),
+        "warmup period should fit inside the demo epoch budget"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_VISUALIZATION_STEP_SIZE)
+            <= black_box(advanced_lr_scheduling::DEMO_VISUALIZATION_STEPS),
+        "visualization scheduler step size should fit inside the visualization budget"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_VISUALIZATION_STEPS) <= 20,
+        "schedule visualization should stay bounded for interactive runs"
+    );
+}
+
+#[test]
+fn advanced_lr_scheduling_uses_small_deterministic_fixture() {
+    let first = advanced_lr_scheduling::generate_sine_wave_data(black_box(4), 0.0);
+    let second = advanced_lr_scheduling::generate_sine_wave_data(black_box(4), 0.0);
+
+    assert_eq!(
+        first, second,
+        "advanced LR demo fixture should be deterministic"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_TRAIN_SEQUENCES) <= 12,
+        "advanced_lr_scheduling should keep training sequence count bounded"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_VAL_SEQUENCES) <= 4,
+        "advanced_lr_scheduling should keep validation sequence count bounded"
+    );
+    assert!(
+        black_box(advanced_lr_scheduling::DEMO_SEQUENCE_LENGTH) <= 6,
+        "advanced_lr_scheduling should keep each fixture sequence bounded"
+    );
+    assert!(
+        first.iter().all(|(inputs, targets)| {
+            inputs.len() == advanced_lr_scheduling::DEMO_SEQUENCE_LENGTH
+                && targets.len() == advanced_lr_scheduling::DEMO_SEQUENCE_LENGTH
         }),
         "generated fixtures should use the public demo sequence-length bound"
     );
