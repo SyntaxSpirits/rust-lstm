@@ -7,24 +7,35 @@
 #![allow(unused_comparisons)]
 
 use ndarray::{arr2, Array2};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rust_lstm::loss::MSELoss;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 use rust_lstm::optimizers::Adam;
-use rust_lstm::training::LSTMTrainer;
+use rust_lstm::training::{LSTMTrainer, TrainingConfig};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+pub const DEMO_SENSOR_DAYS: usize = 7;
+pub const DEMO_SEQUENCE_LENGTH: usize = 12;
+pub const DEMO_HIDDEN_SIZE: usize = 32;
+pub const DEMO_RECENT_WINDOW_HOURS: usize = 48;
+pub const DEMO_PREDICTION_START_HOUR: usize = 24;
+pub const DEMO_NUM_PREDICTIONS: usize = 5;
+pub const DEMO_EPOCHS: usize = 5;
+pub const DEMO_PRINT_EVERY: usize = 2;
+pub const DEMO_RANDOM_SEED: u64 = 42;
+
 /// Generic data point for time series
-#[derive(Debug, Clone)]
-struct DataPoint {
-    timestamp: String,
-    values: Vec<f64>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataPoint {
+    pub timestamp: String,
+    pub values: Vec<f64>,
 }
 
 /// Data loader for CSV files
-struct CSVDataLoader {
-    data: Vec<DataPoint>,
-    feature_names: Vec<String>,
+pub struct CSVDataLoader {
+    pub data: Vec<DataPoint>,
+    pub feature_names: Vec<String>,
     normalizers: Vec<(f64, f64)>, // (mean, std) for each feature
 }
 
@@ -98,7 +109,8 @@ impl CSVDataLoader {
     }
 
     /// Generate synthetic CSV-like data for demonstration
-    fn generate_synthetic_sensor_data(days: usize) -> Self {
+    pub fn generate_synthetic_sensor_data(days: usize) -> Self {
+        let mut rng = StdRng::seed_from_u64(DEMO_RANDOM_SEED);
         let mut data = Vec::new();
 
         // Simulate IoT sensor data: temperature, humidity, pressure, light
@@ -112,22 +124,22 @@ impl CSVDataLoader {
             let seasonal_temp_cycle =
                 15.0 * (2.0 * std::f64::consts::PI * day_of_year / 365.0).sin();
             let temperature =
-                20.0 + daily_temp_cycle + seasonal_temp_cycle + (rand::random::<f64>() - 0.5) * 3.0;
+                20.0 + daily_temp_cycle + seasonal_temp_cycle + (rng.gen::<f64>() - 0.5) * 3.0;
 
             // Humidity inversely related to temperature
-            let humidity = 70.0 - (temperature - 20.0) * 1.5 + (rand::random::<f64>() - 0.5) * 15.0;
+            let humidity = 70.0 - (temperature - 20.0) * 1.5 + (rng.gen::<f64>() - 0.5) * 15.0;
             let humidity = humidity.clamp(20.0, 95.0);
 
             // Pressure with weather patterns
             let pressure =
-                1013.25 + 10.0 * (day_of_year / 30.0).sin() + (rand::random::<f64>() - 0.5) * 20.0;
+                1013.25 + 10.0 * (day_of_year / 30.0).sin() + (rng.gen::<f64>() - 0.5) * 20.0;
 
             // Light with daily cycle
             let light = if (6.0..=18.0).contains(&hour_of_day) {
                 1000.0 * (std::f64::consts::PI * (hour_of_day - 6.0) / 12.0).sin()
-                    + (rand::random::<f64>() - 0.5) * 200.0
+                    + (rng.gen::<f64>() - 0.5) * 200.0
             } else {
-                (rand::random::<f64>() * 50.0).max(0.0)
+                (rng.gen::<f64>() * 50.0).max(0.0)
             };
 
             let timestamp = format!(
@@ -279,12 +291,7 @@ impl TimeSeriesPredictor {
         let optimizer = Adam::new(0.001);
         let mut trainer = LSTMTrainer::new(self.network.clone(), loss_function, optimizer);
 
-        // Configure for quick demo
-        let mut config = rust_lstm::training::TrainingConfig::default();
-        config.epochs = 5; // Very reduced for quick demo
-        config.print_every = 2; // Print every 2 epochs
-
-        trainer = trainer.with_config(config);
+        trainer = trainer.with_config(real_data_training_config());
 
         trainer.train(train_data, Some(val_data));
 
@@ -321,13 +328,21 @@ impl TimeSeriesPredictor {
     }
 }
 
+pub fn real_data_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        ..TrainingConfig::default()
+    }
+}
+
 fn main() {
     println!("📈 Real Data Time Series Prediction with LSTM");
     println!("===============================================\n");
 
     // Generate synthetic sensor data (in practice, load from real CSV)
     println!("📡 Generating synthetic IoT sensor data...");
-    let mut data_loader = CSVDataLoader::generate_synthetic_sensor_data(7); // 7 days for quick demo
+    let mut data_loader = CSVDataLoader::generate_synthetic_sensor_data(DEMO_SENSOR_DAYS);
 
     println!(
         "📊 Data loaded: {} data points with {} features",
@@ -360,8 +375,8 @@ fn main() {
     // Create predictor to predict temperature (feature 0)
     let mut predictor = TimeSeriesPredictor::new(
         data_loader.feature_names.len(), // All features as input
-        12,                              // 12-hour sequences (reduced for speed)
-        32,                              // 32 hidden units (reduced for speed)
+        DEMO_SEQUENCE_LENGTH,            // Reduced for speed
+        DEMO_HIDDEN_SIZE,                // Reduced for speed
         0,                               // Predict temperature (index 0)
     );
 
@@ -370,11 +385,10 @@ fn main() {
 
     // Make predictions on recent data
     println!("\n🔮 Making temperature predictions:");
-    let recent_data = &data_loader.data[data_loader.data.len() - 48..]; // Last 48 hours
+    let recent_data = &data_loader.data[data_loader.data.len() - DEMO_RECENT_WINDOW_HOURS..];
 
-    for i in 24..29 {
-        // Predict for hours 25-29
-        let input_data = &recent_data[i - 24..i];
+    for i in DEMO_PREDICTION_START_HOUR..DEMO_PREDICTION_START_HOUR + DEMO_NUM_PREDICTIONS {
+        let input_data = &recent_data[i - DEMO_PREDICTION_START_HOUR..i];
         if let Some(predicted_temp) = predictor.predict_next(&data_loader, input_data) {
             let actual_temp = recent_data[i].values[0];
             let error = (predicted_temp - actual_temp).abs();

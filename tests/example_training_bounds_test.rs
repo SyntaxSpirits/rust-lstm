@@ -26,6 +26,10 @@ mod dropout_example;
 #[path = "../examples/weather_prediction.rs"]
 mod weather_prediction;
 
+#[allow(dead_code)]
+#[path = "../examples/real_data_example.rs"]
+mod real_data_example;
+
 use std::hint::black_box;
 
 #[test]
@@ -460,5 +464,122 @@ fn weather_prediction_demo_data_is_reproducible() {
                 && weather.precipitation >= 0.0
         }),
         "generated weather fixture should keep bounded meteorological values"
+    );
+}
+
+#[test]
+fn real_data_example_applies_bounded_training_config() {
+    let config = real_data_example::real_data_training_config();
+
+    assert!(
+        black_box(config.epochs) <= 5,
+        "real_data_example should avoid long default training runs"
+    );
+    assert!(
+        black_box(config.print_every) > 0,
+        "real_data_example progress logging should stay enabled"
+    );
+    assert!(
+        black_box(config.print_every) <= black_box(config.epochs),
+        "real_data_example progress logging should not exceed the epoch budget"
+    );
+    assert!(
+        config.early_stopping.is_none(),
+        "real_data_example should avoid hidden early-stopping work"
+    );
+}
+
+#[test]
+fn real_data_example_uses_bounded_demo_sizes() {
+    assert!(
+        black_box(real_data_example::DEMO_SENSOR_DAYS) <= 7,
+        "real_data_example should keep its synthetic sensor dataset bounded"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_SEQUENCE_LENGTH) <= 12,
+        "real_data_example should keep each sequence bounded"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_HIDDEN_SIZE) <= 32,
+        "real_data_example should keep hidden size bounded"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_RECENT_WINDOW_HOURS) <= 48,
+        "real_data_example should keep preview prediction data bounded"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_NUM_PREDICTIONS) <= 5,
+        "real_data_example should keep preview prediction count bounded"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_PREDICTION_START_HOUR)
+            >= black_box(real_data_example::DEMO_SEQUENCE_LENGTH),
+        "real_data_example should feed enough history into each preview prediction"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_RECENT_WINDOW_HOURS)
+            >= black_box(
+                real_data_example::DEMO_PREDICTION_START_HOUR
+                    + real_data_example::DEMO_NUM_PREDICTIONS,
+            ),
+        "real_data_example should keep enough recent data for every preview prediction"
+    );
+    assert!(
+        black_box(real_data_example::DEMO_SENSOR_DAYS * 24)
+            >= black_box(real_data_example::DEMO_RECENT_WINDOW_HOURS),
+        "real_data_example dataset should cover the preview prediction window"
+    );
+}
+
+#[test]
+fn real_data_example_synthetic_sensor_data_is_reproducible() {
+    let first = real_data_example::CSVDataLoader::generate_synthetic_sensor_data(black_box(2));
+    let second = real_data_example::CSVDataLoader::generate_synthetic_sensor_data(black_box(2));
+
+    assert_eq!(
+        first.data, second.data,
+        "real_data_example synthetic sensor fixture should be deterministic"
+    );
+    assert_eq!(
+        first.feature_names, second.feature_names,
+        "real_data_example synthetic sensor features should be deterministic"
+    );
+    assert_eq!(
+        first.data.len(),
+        black_box(2 * 24),
+        "real_data_example should generate hourly sensor readings"
+    );
+    assert!(
+        first.data.windows(2).any(|window| window[0] != window[1]),
+        "real_data_example synthetic sensor fixture should vary over time"
+    );
+}
+
+#[test]
+fn real_data_example_synthetic_sensor_data_has_sane_value_bounds() {
+    let loader = real_data_example::CSVDataLoader::generate_synthetic_sensor_data(black_box(12));
+
+    assert_eq!(
+        loader.feature_names,
+        ["temperature", "humidity", "pressure", "light"],
+        "real_data_example should keep the expected sensor feature layout"
+    );
+    assert!(
+        loader.data.iter().all(|point| point.values.len() == 4),
+        "real_data_example should generate four sensor values per reading"
+    );
+    assert!(
+        loader.data.iter().all(|point| {
+            let temperature = point.values[0];
+            let humidity = point.values[1];
+            let pressure = point.values[2];
+            let light = point.values[3];
+
+            (-5.0..=45.0).contains(&temperature)
+                && (20.0..=95.0).contains(&humidity)
+                && (990.0..=1040.0).contains(&pressure)
+                && (-100.0..=1100.0).contains(&light)
+        }),
+        "real_data_example synthetic sensor values should stay in sane ranges"
     );
 }
