@@ -18,6 +18,10 @@ mod learning_rate_scheduling;
 #[path = "../examples/advanced_lr_scheduling.rs"]
 mod advanced_lr_scheduling;
 
+#[allow(dead_code)]
+#[path = "../examples/dropout_example.rs"]
+mod dropout_example;
+
 use std::hint::black_box;
 
 #[test]
@@ -229,6 +233,64 @@ fn learning_rate_scheduling_uses_small_deterministic_fixture() {
         first.iter().all(|(inputs, targets)| {
             inputs.len() == learning_rate_scheduling::DEMO_SEQUENCE_LENGTH
                 && targets.len() == learning_rate_scheduling::DEMO_SEQUENCE_LENGTH
+        }),
+        "generated fixtures should use the public demo sequence-length bound"
+    );
+}
+
+#[test]
+fn dropout_example_applies_bounded_training_config() {
+    let config = dropout_example::dropout_training_config();
+
+    assert!(
+        black_box(config.epochs) <= 4,
+        "dropout_example should avoid the default 100-epoch training config"
+    );
+    assert!(
+        black_box(config.print_every) > 0,
+        "dropout_example progress logging should stay enabled"
+    );
+    assert!(
+        black_box(config.print_every) <= black_box(config.epochs),
+        "dropout_example progress logging should not exceed the epoch budget"
+    );
+    assert!(
+        config.early_stopping.is_none(),
+        "dropout_example should avoid hidden early-stopping work"
+    );
+    assert!(
+        black_box(dropout_example::DEMO_HIDDEN_SIZE) <= 4,
+        "dropout_example should keep demo hidden size bounded"
+    );
+}
+
+#[test]
+fn dropout_example_uses_small_deterministic_fixture() {
+    let first = dropout_example::generate_sine_wave_data(
+        black_box(dropout_example::DEMO_TRAIN_SEQUENCES),
+        black_box(dropout_example::DEMO_SEQUENCE_LENGTH),
+    );
+    let second = dropout_example::generate_sine_wave_data(
+        black_box(dropout_example::DEMO_TRAIN_SEQUENCES),
+        black_box(dropout_example::DEMO_SEQUENCE_LENGTH),
+    );
+
+    assert_eq!(
+        first, second,
+        "dropout demo fixture should be deterministic"
+    );
+    assert!(
+        black_box(dropout_example::DEMO_TRAIN_SEQUENCES) <= 8,
+        "dropout_example should keep training sequence count bounded"
+    );
+    assert!(
+        black_box(dropout_example::DEMO_SEQUENCE_LENGTH) <= 4,
+        "dropout_example should keep each fixture sequence bounded"
+    );
+    assert!(
+        first.iter().all(|(inputs, targets)| {
+            inputs.len() == dropout_example::DEMO_SEQUENCE_LENGTH
+                && targets.len() == dropout_example::DEMO_SEQUENCE_LENGTH
         }),
         "generated fixtures should use the public demo sequence-length bound"
     );
