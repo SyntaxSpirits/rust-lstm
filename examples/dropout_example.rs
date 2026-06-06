@@ -14,6 +14,12 @@ use rust_lstm::{
     LSTMNetwork, LayerDropoutConfig,
 };
 
+pub const DEMO_TRAIN_SEQUENCES: usize = 8;
+pub const DEMO_SEQUENCE_LENGTH: usize = 4;
+pub const DEMO_HIDDEN_SIZE: usize = 4;
+pub const DEMO_EPOCHS: usize = 4;
+pub const DEMO_PRINT_EVERY: usize = 1;
+
 fn main() {
     println!("Rust LSTM Dropout Example");
     println!("=========================\n");
@@ -190,7 +196,7 @@ fn demonstrate_training_with_dropout() {
     println!("------------------------");
 
     let input_size = 2;
-    let hidden_size = 4;
+    let hidden_size = DEMO_HIDDEN_SIZE;
     let num_layers = 2;
 
     // Create network with comprehensive dropout
@@ -204,19 +210,10 @@ fn demonstrate_training_with_dropout() {
     let loss_function = MSELoss;
     let optimizer = Adam::new(0.001);
     let mut trainer = LSTMTrainer::new(network, loss_function, optimizer);
-
-    // Configure training
-    let config = TrainingConfig {
-        epochs: 20,
-        print_every: 5,
-        clip_gradient: Some(1.0),
-        log_lr_changes: false,
-        early_stopping: None,
-    };
-    trainer = trainer.with_config(config);
+    trainer = trainer.with_config(dropout_training_config());
 
     // Generate simple training data (sine wave prediction)
-    let train_data = generate_sine_wave_data(10, 5);
+    let train_data = generate_sine_wave_data(DEMO_TRAIN_SEQUENCES, DEMO_SEQUENCE_LENGTH);
 
     println!("Training LSTM with dropout regularization...");
     println!(
@@ -251,7 +248,17 @@ fn demonstrate_training_with_dropout() {
     println!("\nTraining completed with dropout regularization!");
 }
 
-fn generate_sine_wave_data(
+pub fn dropout_training_config() -> TrainingConfig {
+    TrainingConfig {
+        epochs: DEMO_EPOCHS,
+        print_every: DEMO_PRINT_EVERY,
+        clip_gradient: Some(1.0),
+        log_lr_changes: false,
+        early_stopping: None,
+    }
+}
+
+pub fn generate_sine_wave_data(
     num_sequences: usize,
     sequence_length: usize,
 ) -> Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)> {
