@@ -21,6 +21,7 @@ pub struct LayerDropoutConfig {
     pub output_dropout_rate: f64,
     pub candidate_dropout_rate: f64,
     pub candidate_variational: bool,
+    pub zoneout_rate: f64,
 }
 
 impl Default for LayerDropoutConfig {
@@ -39,6 +40,7 @@ impl LayerDropoutConfig {
             output_dropout_rate: 0.0,
             candidate_dropout_rate: 0.0,
             candidate_variational: false,
+            zoneout_rate: 0.0,
         }
     }
 
@@ -62,6 +64,11 @@ impl LayerDropoutConfig {
     pub fn with_candidate_dropout(mut self, rate: f64, variational: bool) -> Self {
         self.candidate_dropout_rate = rate;
         self.candidate_variational = variational;
+        self
+    }
+
+    pub fn with_zoneout(mut self, rate: f64) -> Self {
+        self.zoneout_rate = rate;
         self
     }
 }
@@ -132,6 +139,14 @@ impl GRUNetwork {
         self
     }
 
+    /// Zoneout of the hidden state of every layer (Krueger et al., 2017).
+    pub fn with_zoneout(mut self, rate: f64) -> Self {
+        for cell in &mut self.cells {
+            *cell = cell.clone().with_zoneout(rate);
+        }
+        self
+    }
+
     /// Apply layer-specific dropout configuration
     pub fn with_layer_dropout(mut self, configs: Vec<LayerDropoutConfig>) -> Self {
         if configs.len() != self.num_layers {
@@ -149,6 +164,9 @@ impl GRUNetwork {
                     config.recurrent_dropout_rate,
                     config.recurrent_variational,
                 );
+            }
+            if config.zoneout_rate > 0.0 {
+                self.cells[i] = self.cells[i].clone().with_zoneout(config.zoneout_rate);
             }
             if config.candidate_dropout_rate > 0.0 {
                 self.cells[i] = self.cells[i].clone().with_candidate_dropout(
