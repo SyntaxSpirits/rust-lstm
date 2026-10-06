@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-06
+
+### Fixed
+- **Backpropagation through time**: trainers differentiated every time step in
+  isolation and discarded the gradients flowing into the previous hidden and cell
+  states. Gradients now flow through the whole sequence.
+- **Stacked LSTMs**: all layers shared a single hidden and cell state, so layer 2
+  received layer 1's current output as its previous state. Every layer now keeps its
+  own state, as in `torch.nn.LSTM(num_layers > 1)`, and receives its full gradient.
+- **Dropout gradients**: weight gradients used the inputs before dropout; output
+  dropout leaked into the recurrent state; GRU recurrent dropout also dropped the
+  carried state.
+- **Zoneout**: masks are cached and differentiated; evaluation uses the expected
+  state instead of disabling zoneout.
+- **GRU stacks** passed the hidden-state gradient instead of the input gradient to the
+  layer below.
+- **Gradient clipping** now rescales by the joint norm of all gradients, as documented,
+  instead of clipping each matrix separately.
+
+### Added
+- `LSTMState`, `LSTMNetwork::zero_state`, `forward_sequence` and `backward_sequence`
+- `GRUNetwork::forward_with_cache` and `backward_sequence`
+- `BiLSTMNetwork::backward_sequence`
+- `PeepholeLSTMCell::forward_with_cache`, `backward` and `update_parameters`
+- `training::sequence_gradients` and `training::clip_global_norm`
+- Finite-difference gradient checks for every layer (`tests/gradient_check.rs`)
+- PyTorch parity check and timing harness (`validation/`), run in CI
+
+### Changed
+- **Breaking**: `LSTMNetwork::forward(input, &state)` takes and returns an `LSTMState`
+  instead of a single `(hx, cx)` pair.
+- **Breaking**: cells process any batch width through `forward_with_cache`/`backward`;
+  the separate `*_batch` methods, `LSTMCellBatchCache` and `LSTMNetworkBatchCache` were
+  removed, and `LSTMNetwork::backward` was replaced by `backward_sequence`.
+- `BiLSTMNetworkCache` stores caches per layer and time step.
+
 ## [0.8.0] - 2026-02-02
 
 ### Added

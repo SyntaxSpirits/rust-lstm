@@ -46,9 +46,8 @@ fn test_network_save_load_json() {
 
     // Test forward pass to ensure network works
     let input = Array2::ones((3, 1));
-    let hx = Array2::zeros((4, 1));
-    let cx = Array2::zeros((4, 1));
-    let (output_before, _) = network.forward(&input, &hx, &cx);
+    let state = network.zero_state(1);
+    let (output_before, _) = network.forward(&input, &state);
 
     // Save the network
     let metadata = ModelMetadata {
@@ -82,7 +81,7 @@ fn test_network_save_load_json() {
     assert_eq!(loaded_network.num_layers, 2);
 
     // Test that loaded network produces same output (within numerical tolerance)
-    let (output_after, _) = loaded_network.forward(&input, &hx, &cx);
+    let (output_after, _) = loaded_network.forward(&input, &state);
     assert_eq!(output_before.shape(), output_after.shape());
 
     // Check if outputs are approximately equal (they should be identical for same weights)
@@ -105,10 +104,9 @@ fn test_network_save_load_binary() {
 
     // Test forward pass
     let input = Array2::ones((2, 1));
-    let hx = Array2::zeros((3, 1));
-    let cx = Array2::zeros((3, 1));
+    let state = network.zero_state(1);
     network.eval(); // Set to eval mode for consistent output
-    let (output_before, _) = network.forward(&input, &hx, &cx);
+    let (output_before, _) = network.forward(&input, &state);
 
     // Save the network
     let metadata = ModelMetadata {
@@ -142,7 +140,7 @@ fn test_network_save_load_binary() {
 
     // Test that loaded network produces same output
     loaded_network.eval();
-    let (output_after, _) = loaded_network.forward(&input, &hx, &cx);
+    let (output_after, _) = loaded_network.forward(&input, &state);
     assert_eq!(output_before.shape(), output_after.shape());
 
     let diff = (&output_before - &output_after).mapv(|x| x.abs()).sum();
@@ -225,9 +223,8 @@ fn test_persistence_with_trained_model() {
     let test_input = [Array2::ones((1, 1))];
     loaded_network.eval();
 
-    let hx = Array2::zeros((2, 1));
-    let cx = Array2::zeros((2, 1));
-    let (output, _) = loaded_network.forward(&test_input[0], &hx, &cx);
+    let state = loaded_network.zero_state(1);
+    let (output, _) = loaded_network.forward(&test_input[0], &state);
 
     assert_eq!(output.shape(), &[2, 1]);
 }

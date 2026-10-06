@@ -1,6 +1,6 @@
-use crate::layers::dropout::{Dropout, Zoneout};
+use crate::layers::dropout::{zone, Dropout, Zoneout};
 use crate::utils::sigmoid;
-use ndarray::{s, Array2};
+use ndarray::{s, Array2, Axis};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
@@ -13,13 +13,42 @@ pub struct LSTMCellGradients {
     pub b_hh: Array2<f64>,
 }
 
-/// Caches intermediate values during forward pass for efficient backward computation
+impl LSTMCellGradients {
+    pub fn accumulate(&mut self, other: &LSTMCellGradients) {
+        self.w_ih += &other.w_ih;
+        self.w_hh += &other.w_hh;
+        self.b_ih += &other.b_ih;
+        self.b_hh += &other.b_hh;
+    }
+
+    pub fn squared_norm(&self) -> f64 {
+        [&self.w_ih, &self.w_hh, &self.b_ih, &self.b_hh]
+            .iter()
+            .map(|m| m.iter().map(|v| v * v).sum::<f64>())
+            .sum()
+    }
+
+    pub fn scale(&mut self, factor: f64) {
+        for m in [
+            &mut self.w_ih,
+            &mut self.w_hh,
+            &mut self.b_ih,
+            &mut self.b_hh,
+        ] {
+            m.mapv_inplace(|v| v * factor);
+        }
+    }
+}
+
+/// Values saved by the forward pass and consumed by `backward`.
+///
+/// `input` and `hx` are the values after input and recurrent dropout, i.e. exactly
+/// the operands of `w_ih` and `w_hh`. Matrices have one column per batch element.
 #[derive(Clone)]
 pub struct LSTMCellCache {
     pub input: Array2<f64>,
     pub hx: Array2<f64>,
     pub cx: Array2<f64>,
-    pub gates: Array2<f64>,
     pub input_gate: Array2<f64>,
     pub forget_gate: Array2<f64>,
     pub cell_gate: Array2<f64>,
@@ -28,26 +57,8 @@ pub struct LSTMCellCache {
     pub hy: Array2<f64>,
     pub input_dropout_mask: Option<Array2<f64>>,
     pub recurrent_dropout_mask: Option<Array2<f64>>,
-    pub output_dropout_mask: Option<Array2<f64>>,
-}
-
-/// Batch cache for multiple sequences processed simultaneously
-#[derive(Clone)]
-pub struct LSTMCellBatchCache {
-    pub input: Array2<f64>,
-    pub hx: Array2<f64>,
-    pub cx: Array2<f64>,
-    pub gates: Array2<f64>,
-    pub input_gate: Array2<f64>,
-    pub forget_gate: Array2<f64>,
-    pub cell_gate: Array2<f64>,
-    pub output_gate: Array2<f64>,
-    pub cy: Array2<f64>,
-    pub hy: Array2<f64>,
-    pub input_dropout_mask: Option<Array2<f64>>,
-    pub recurrent_dropout_mask: Option<Array2<f64>>,
-    pub output_dropout_mask: Option<Array2<f64>>,
-    pub batch_size: usize,
+    pub cell_zoneout_mask: Option<Array2<f64>>,
+    pub hidden_zoneout_mask: Option<Array2<f64>>,
 }
 
 /// LSTM cell with trainable parameters and dropout support
@@ -66,7 +77,7 @@ pub struct LSTMCell {
 }
 
 impl LSTMCell {
-    /// Creates new LSTM cell with Xavier-uniform weight initialization
+    /// Creates a new LSTM cell with weights drawn from U(-0.1, 0.1) and zero biases
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let dist = Uniform::new(-0.1, 0.1);
 
@@ -149,6 +160,28 @@ impl LSTMCell {
         }
     }
 
+    /// Clears variational dropout masks; call at the start of every sequence.
+    pub fn reset_dropout_masks(&mut self) {
+        for dropout in [
+            &mut self.input_dropout,
+            &mut self.recurrent_dropout,
+            &mut self.output_dropout,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            dropout.reset();
+        }
+    }
+
+    /// Samples the dropout mask applied to this cell's output before it is fed to
+    /// the next layer. The recurrent state itself is never dropped.
+    pub fn output_dropout_mask(&mut self, shape: ndarray::Dim<[usize; 2]>) -> Option<Array2<f64>> {
+        self.output_dropout
+            .as_mut()
+            .and_then(|dropout| dropout.sample_mask(shape))
+    }
+
     pub fn forward(
         &mut self,
         input: &Array2<f64>,
@@ -159,502 +192,113 @@ impl LSTMCell {
         (hy, cy)
     }
 
+    /// One time step for a batch of column vectors.
+    ///
+    /// `input` has shape (input_size, batch), `hx` and `cx` have shape
+    /// (hidden_size, batch). Returns the new hidden and cell states.
     pub fn forward_with_cache(
         &mut self,
         input: &Array2<f64>,
         hx: &Array2<f64>,
         cx: &Array2<f64>,
     ) -> (Array2<f64>, Array2<f64>, LSTMCellCache) {
-        let (input_dropped, input_mask) = if let Some(ref mut dropout) = self.input_dropout {
-            let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (input.clone(), None)
+        let h = self.hidden_size;
+        let input_mask = self
+            .input_dropout
+            .as_mut()
+            .and_then(|d| d.sample_mask(input.raw_dim()));
+        let recurrent_mask = self
+            .recurrent_dropout
+            .as_mut()
+            .and_then(|d| d.sample_mask(hx.raw_dim()));
+        let x = masked(input, &input_mask);
+        let hx_in = masked(hx, &recurrent_mask);
+
+        let gates = self.w_ih.dot(&x) + self.w_hh.dot(&hx_in) + &self.b_ih + &self.b_hh;
+        let input_gate = gates.slice(s![0..h, ..]).mapv(sigmoid);
+        let forget_gate = gates.slice(s![h..2 * h, ..]).mapv(sigmoid);
+        let cell_gate = gates.slice(s![2 * h..3 * h, ..]).mapv(f64::tanh);
+        let output_gate = gates.slice(s![3 * h..4 * h, ..]).mapv(sigmoid);
+
+        let c_new = &forget_gate * cx + &input_gate * &cell_gate;
+        let (cell_zoneout_mask, hidden_zoneout_mask) = match self.zoneout {
+            Some(ref z) => (z.cell_mask(cx.raw_dim()), z.hidden_mask(hx.raw_dim())),
+            None => (None, None),
         };
-
-        let (hx_dropped, recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
-            let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hx.clone(), None)
+        let cy = match cell_zoneout_mask {
+            Some(ref m) => zone(m, &c_new, cx),
+            None => c_new,
         };
-
-        // Compute all gates in parallel: [input_gate, forget_gate, cell_gate, output_gate]
-        let gates =
-            &self.w_ih.dot(&input_dropped) + &self.b_ih + &self.w_hh.dot(&hx_dropped) + &self.b_hh;
-
-        let input_gate = gates
-            .slice(s![0..self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-        let forget_gate = gates
-            .slice(s![self.hidden_size..2 * self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-        let cell_gate = gates
-            .slice(s![2 * self.hidden_size..3 * self.hidden_size, ..])
-            .map(|&x| x.tanh());
-        let output_gate = gates
-            .slice(s![3 * self.hidden_size..4 * self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-
-        let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
-
-        if let Some(ref zoneout) = self.zoneout {
-            cy = zoneout.apply_cell_zoneout(&cy, cx);
-        }
-
-        let mut hy = &output_gate * cy.map(|&x| x.tanh());
-
-        if let Some(ref zoneout) = self.zoneout {
-            hy = zoneout.apply_hidden_zoneout(&hy, hx);
-        }
-
-        let (hy_final, output_mask) = if let Some(ref mut dropout) = self.output_dropout {
-            let dropped = dropout.forward(&hy);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hy, None)
+        let h_new = &output_gate * &cy.mapv(f64::tanh);
+        let hy = match hidden_zoneout_mask {
+            Some(ref m) => zone(m, &h_new, hx),
+            None => h_new,
         };
 
         let cache = LSTMCellCache {
-            input: input.clone(),
-            hx: hx.clone(),
+            input: x,
+            hx: hx_in,
             cx: cx.clone(),
-            gates,
-            input_gate: input_gate.to_owned(),
-            forget_gate: forget_gate.to_owned(),
-            cell_gate: cell_gate.to_owned(),
-            output_gate: output_gate.to_owned(),
+            input_gate,
+            forget_gate,
+            cell_gate,
+            output_gate,
             cy: cy.clone(),
-            hy: hy_final.clone(),
+            hy: hy.clone(),
             input_dropout_mask: input_mask,
             recurrent_dropout_mask: recurrent_mask,
-            output_dropout_mask: output_mask,
+            cell_zoneout_mask,
+            hidden_zoneout_mask,
         };
 
-        (hy_final, cy, cache)
+        (hy, cy, cache)
     }
 
-    /// Batch forward pass for multiple sequences simultaneously
+    /// Backward pass for one time step.
     ///
-    /// # Arguments
-    /// * `input` - Input tensor of shape (input_size, batch_size)
-    /// * `hx` - Hidden state tensor of shape (hidden_size, batch_size)
-    /// * `cx` - Cell state tensor of shape (hidden_size, batch_size)
-    ///
-    /// # Returns
-    /// * Tuple of (new_hidden_state, new_cell_state) with same batch dimensions
-    pub fn forward_batch(
-        &mut self,
-        input: &Array2<f64>,
-        hx: &Array2<f64>,
-        cx: &Array2<f64>,
-    ) -> (Array2<f64>, Array2<f64>) {
-        let batch_size = input.ncols();
-        assert_eq!(
-            hx.ncols(),
-            batch_size,
-            "Hidden state batch size must match input batch size"
-        );
-        assert_eq!(
-            cx.ncols(),
-            batch_size,
-            "Cell state batch size must match input batch size"
-        );
-        assert_eq!(
-            input.nrows(),
-            self.w_ih.ncols(),
-            "Input feature size must match weight matrix"
-        );
-        assert_eq!(
-            hx.nrows(),
-            self.hidden_size,
-            "Hidden state size must match network hidden size"
-        );
-        assert_eq!(
-            cx.nrows(),
-            self.hidden_size,
-            "Cell state size must match network hidden size"
-        );
-
-        // Apply input dropout across the entire batch
-        let (input_dropped, _input_mask) = if let Some(ref mut dropout) = self.input_dropout {
-            let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (input.clone(), None)
-        };
-
-        // Apply recurrent dropout across the entire batch
-        let (hx_dropped, _recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
-            let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hx.clone(), None)
-        };
-
-        // Compute all gates in parallel for the entire batch
-        // gates shape: (4 * hidden_size, batch_size)
-        let gates = &self.w_ih.dot(&input_dropped)
-            + &self
-                .b_ih
-                .broadcast((4 * self.hidden_size, batch_size))
-                .unwrap()
-            + &self.w_hh.dot(&hx_dropped)
-            + self
-                .b_hh
-                .broadcast((4 * self.hidden_size, batch_size))
-                .unwrap();
-
-        // Extract and compute gate activations for the entire batch
-        let input_gate = gates
-            .slice(s![0..self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-        let forget_gate = gates
-            .slice(s![self.hidden_size..2 * self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-        let cell_gate = gates
-            .slice(s![2 * self.hidden_size..3 * self.hidden_size, ..])
-            .map(|&x| x.tanh());
-        let output_gate = gates
-            .slice(s![3 * self.hidden_size..4 * self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-
-        // Update cell state for entire batch
-        let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
-
-        // Apply zoneout to cell state if configured
-        if let Some(ref zoneout) = self.zoneout {
-            for col_idx in 0..batch_size {
-                let cy_col = cy.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let cx_col = cx.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let cy_zoneout = zoneout.apply_cell_zoneout(&cy_col, &cx_col);
-                cy.column_mut(col_idx).assign(&cy_zoneout.column(0));
-            }
-        }
-
-        // Compute hidden state for entire batch
-        let mut hy = &output_gate * cy.map(|&x| x.tanh());
-
-        // Apply zoneout to hidden state if configured
-        if let Some(ref zoneout) = self.zoneout {
-            for col_idx in 0..batch_size {
-                let hy_col = hy.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let hx_col = hx.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let hy_zoneout = zoneout.apply_hidden_zoneout(&hy_col, &hx_col);
-                hy.column_mut(col_idx).assign(&hy_zoneout.column(0));
-            }
-        }
-
-        // Apply output dropout to the entire batch
-        let hy_final = if let Some(ref mut dropout) = self.output_dropout {
-            dropout.forward(&hy)
-        } else {
-            hy
-        };
-
-        (hy_final, cy)
-    }
-
-    /// Batch forward pass with caching for training
-    ///
-    /// Similar to forward_batch but caches intermediate values needed for backpropagation
-    pub fn forward_batch_with_cache(
-        &mut self,
-        input: &Array2<f64>,
-        hx: &Array2<f64>,
-        cx: &Array2<f64>,
-    ) -> (Array2<f64>, Array2<f64>, LSTMCellBatchCache) {
-        let batch_size = input.ncols();
-
-        // Apply dropout and track masks
-        let (input_dropped, input_mask) = if let Some(ref mut dropout) = self.input_dropout {
-            let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (input.clone(), None)
-        };
-
-        let (hx_dropped, recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
-            let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hx.clone(), None)
-        };
-
-        // Compute gates for entire batch
-        let gates = &self.w_ih.dot(&input_dropped)
-            + &self
-                .b_ih
-                .broadcast((4 * self.hidden_size, batch_size))
-                .unwrap()
-            + &self.w_hh.dot(&hx_dropped)
-            + self
-                .b_hh
-                .broadcast((4 * self.hidden_size, batch_size))
-                .unwrap();
-
-        let input_gate = gates
-            .slice(s![0..self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-        let forget_gate = gates
-            .slice(s![self.hidden_size..2 * self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-        let cell_gate = gates
-            .slice(s![2 * self.hidden_size..3 * self.hidden_size, ..])
-            .map(|&x| x.tanh());
-        let output_gate = gates
-            .slice(s![3 * self.hidden_size..4 * self.hidden_size, ..])
-            .map(|&x| sigmoid(x));
-
-        let mut cy = &forget_gate * cx + &input_gate * &cell_gate;
-
-        // Apply zoneout if configured
-        if let Some(ref zoneout) = self.zoneout {
-            for col_idx in 0..batch_size {
-                let cy_col = cy.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let cx_col = cx.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let cy_zoneout = zoneout.apply_cell_zoneout(&cy_col, &cx_col);
-                cy.column_mut(col_idx).assign(&cy_zoneout.column(0));
-            }
-        }
-
-        let mut hy = &output_gate * cy.map(|&x| x.tanh());
-
-        if let Some(ref zoneout) = self.zoneout {
-            for col_idx in 0..batch_size {
-                let hy_col = hy.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let hx_col = hx.column(col_idx).to_owned().insert_axis(ndarray::Axis(1));
-                let hy_zoneout = zoneout.apply_hidden_zoneout(&hy_col, &hx_col);
-                hy.column_mut(col_idx).assign(&hy_zoneout.column(0));
-            }
-        }
-
-        let (hy_final, output_mask) = if let Some(ref mut dropout) = self.output_dropout {
-            let dropped = dropout.forward(&hy);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hy, None)
-        };
-
-        // Create cache for backpropagation
-        let cache = LSTMCellBatchCache {
-            input: input.clone(),
-            hx: hx.clone(),
-            cx: cx.clone(),
-            gates: gates.to_owned(),
-            input_gate: input_gate.to_owned(),
-            forget_gate: forget_gate.to_owned(),
-            cell_gate: cell_gate.to_owned(),
-            output_gate: output_gate.to_owned(),
-            cy: cy.clone(),
-            hy: hy_final.clone(),
-            input_dropout_mask: input_mask,
-            recurrent_dropout_mask: recurrent_mask,
-            output_dropout_mask: output_mask,
-            batch_size,
-        };
-
-        (hy_final, cy, cache)
-    }
-
-    /// Backward pass implementing LSTM gradient computation with dropout
-    ///
-    /// Returns (parameter_gradients, input_gradient, hidden_gradient, cell_gradient)
+    /// `dhy` and `dcy` are the gradients of the loss with respect to the hidden and
+    /// cell states returned by the forward pass. Returns the parameter gradients
+    /// (summed over the batch) and the gradients with respect to `input`, `hx` and `cx`.
     pub fn backward(
         &self,
         dhy: &Array2<f64>,
         dcy: &Array2<f64>,
         cache: &LSTMCellCache,
     ) -> (LSTMCellGradients, Array2<f64>, Array2<f64>, Array2<f64>) {
-        let hidden_size = self.hidden_size;
+        let h = self.hidden_size;
+        let (dh_new, dhx_zoneout) = split_zoneout(dhy, &cache.hidden_zoneout_mask);
 
-        // Apply output dropout backward pass using saved mask
-        let dhy_dropped = if let Some(ref mask) = cache.output_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.output_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dhy * mask / keep_prob
-        } else {
-            dhy.clone()
-        };
+        let tanh_cy = cache.cy.mapv(f64::tanh);
+        let do_raw = &dh_new * &tanh_cy * &cache.output_gate.mapv(|o| o * (1.0 - o));
+        let dc = dcy + &dh_new * &cache.output_gate * &tanh_cy.mapv(|t| 1.0 - t * t);
+        let (dc_new, dcx_zoneout) = split_zoneout(&dc, &cache.cell_zoneout_mask);
 
-        // Output gate gradients: ∂L/∂o_t = ∂L/∂h_t ⊙ tanh(c_t)
-        let tanh_cy = cache.cy.map(|&x| x.tanh());
-        let do_t = &dhy_dropped * &tanh_cy;
-        let do_raw = &do_t * &cache.output_gate * (&cache.output_gate.map(|&x| 1.0 - x));
+        let di_raw = &dc_new * &cache.cell_gate * &cache.input_gate.mapv(|i| i * (1.0 - i));
+        let df_raw = &dc_new * &cache.cx * &cache.forget_gate.mapv(|f| f * (1.0 - f));
+        let dg_raw = &dc_new * &cache.input_gate * &cache.cell_gate.mapv(|g| 1.0 - g * g);
 
-        // Cell state gradients from both tanh and direct paths
-        let dcy_from_tanh =
-            &dhy_dropped * &cache.output_gate * cache.cy.map(|&x| 1.0 - x.tanh().powi(2));
-        let dcy_total = dcy + dcy_from_tanh;
+        let mut dgates = Array2::zeros((4 * h, dhy.ncols()));
+        dgates.slice_mut(s![0..h, ..]).assign(&di_raw);
+        dgates.slice_mut(s![h..2 * h, ..]).assign(&df_raw);
+        dgates.slice_mut(s![2 * h..3 * h, ..]).assign(&dg_raw);
+        dgates.slice_mut(s![3 * h..4 * h, ..]).assign(&do_raw);
 
-        // Forget gate gradients: ∂L/∂f_t = ∂L/∂c_t ⊙ c_t-1
-        let df_t = &dcy_total * &cache.cx;
-        let df_raw = &df_t * &cache.forget_gate * cache.forget_gate.map(|&x| 1.0 - x);
-
-        // Input gate gradients: ∂L/∂i_t = ∂L/∂c_t ⊙ g_t
-        let di_t = &dcy_total * &cache.cell_gate;
-        let di_raw = &di_t * &cache.input_gate * cache.input_gate.map(|&x| 1.0 - x);
-
-        // Cell gate gradients: ∂L/∂g_t = ∂L/∂c_t ⊙ i_t
-        let dc_t = &dcy_total * &cache.input_gate;
-        let dc_raw = &dc_t * cache.cell_gate.map(|&x| 1.0 - x.powi(2));
-
-        // Concatenate gate gradients in the same order as forward pass
-        let mut dgates = Array2::zeros((4 * hidden_size, 1));
-        dgates.slice_mut(s![0..hidden_size, ..]).assign(&di_raw);
-        dgates
-            .slice_mut(s![hidden_size..2 * hidden_size, ..])
-            .assign(&df_raw);
-        dgates
-            .slice_mut(s![2 * hidden_size..3 * hidden_size, ..])
-            .assign(&dc_raw);
-        dgates
-            .slice_mut(s![3 * hidden_size..4 * hidden_size, ..])
-            .assign(&do_raw);
-
-        // Parameter gradients using chain rule
-        let dw_ih = dgates.dot(&cache.input.t());
-        let dw_hh = dgates.dot(&cache.hx.t());
-        let db_ih = dgates.clone();
-        let db_hh = dgates.clone();
-
+        let db = dgates.sum_axis(Axis(1)).insert_axis(Axis(1));
         let gradients = LSTMCellGradients {
-            w_ih: dw_ih,
-            w_hh: dw_hh,
-            b_ih: db_ih,
-            b_hh: db_hh,
+            w_ih: dgates.dot(&cache.input.t()),
+            w_hh: dgates.dot(&cache.hx.t()),
+            b_ih: db.clone(),
+            b_hh: db,
         };
 
-        let mut dx = self.w_ih.t().dot(&dgates);
-        let mut dhx = self.w_hh.t().dot(&dgates);
-        let dcx = &dcy_total * &cache.forget_gate;
-
-        if let Some(ref mask) = cache.input_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.input_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dx = dx * mask / keep_prob;
+        let dx = masked(&self.w_ih.t().dot(&dgates), &cache.input_dropout_mask);
+        let mut dhx = masked(&self.w_hh.t().dot(&dgates), &cache.recurrent_dropout_mask);
+        if let Some(d) = dhx_zoneout {
+            dhx += &d;
         }
-
-        if let Some(ref mask) = cache.recurrent_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.recurrent_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dhx = dhx * mask / keep_prob;
-        }
-
-        (gradients, dx, dhx, dcx)
-    }
-
-    /// Batch backward pass for training with multiple sequences
-    ///
-    /// Computes gradients for an entire batch simultaneously
-    pub fn backward_batch(
-        &self,
-        dhy: &Array2<f64>,
-        dcy: &Array2<f64>,
-        cache: &LSTMCellBatchCache,
-    ) -> (LSTMCellGradients, Array2<f64>, Array2<f64>, Array2<f64>) {
-        let batch_size = cache.batch_size;
-        let hidden_size = self.hidden_size;
-
-        // Apply output dropout backward pass using saved mask
-        let dhy_dropped = if let Some(ref mask) = cache.output_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.output_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dhy * mask / keep_prob
-        } else {
-            dhy.clone()
-        };
-
-        // Output gate gradients for entire batch
-        let tanh_cy = cache.cy.map(|&x| x.tanh());
-        let do_t = &dhy_dropped * &tanh_cy;
-        let do_raw = &do_t * &cache.output_gate * &cache.output_gate.map(|&x| 1.0 - x);
-
-        // Cell state gradients from both tanh and direct paths
-        let dcy_from_tanh =
-            &dhy_dropped * &cache.output_gate * cache.cy.map(|&x| 1.0 - x.tanh().powi(2));
-        let dcy_total = dcy + dcy_from_tanh;
-
-        // Gate gradients for entire batch
-        let df_t = &dcy_total * &cache.cx;
-        let df_raw = &df_t * &cache.forget_gate * cache.forget_gate.map(|&x| 1.0 - x);
-
-        let di_t = &dcy_total * &cache.cell_gate;
-        let di_raw = &di_t * &cache.input_gate * cache.input_gate.map(|&x| 1.0 - x);
-
-        let dc_t = &dcy_total * &cache.input_gate;
-        let dc_raw = &dc_t * cache.cell_gate.map(|&x| 1.0 - x.powi(2));
-
-        // Concatenate gate gradients
-        let mut dgates = Array2::zeros((4 * hidden_size, batch_size));
-        dgates.slice_mut(s![0..hidden_size, ..]).assign(&di_raw);
-        dgates
-            .slice_mut(s![hidden_size..2 * hidden_size, ..])
-            .assign(&df_raw);
-        dgates
-            .slice_mut(s![2 * hidden_size..3 * hidden_size, ..])
-            .assign(&dc_raw);
-        dgates
-            .slice_mut(s![3 * hidden_size..4 * hidden_size, ..])
-            .assign(&do_raw);
-
-        // Parameter gradients - sum across batch dimension
-        let dw_ih = dgates.dot(&cache.input.t());
-        let dw_hh = dgates.dot(&cache.hx.t());
-        let db_ih = dgates
-            .sum_axis(ndarray::Axis(1))
-            .insert_axis(ndarray::Axis(1));
-        let db_hh = db_ih.clone();
-
-        let gradients = LSTMCellGradients {
-            w_ih: dw_ih,
-            w_hh: dw_hh,
-            b_ih: db_ih,
-            b_hh: db_hh,
-        };
-
-        // Input and hidden gradients for entire batch
-        let mut dx = self.w_ih.t().dot(&dgates);
-        let mut dhx = self.w_hh.t().dot(&dgates);
-        let dcx = &dcy_total * &cache.forget_gate;
-
-        // Apply dropout gradients if masks exist
-        if let Some(ref mask) = cache.input_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.input_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dx = dx * mask / keep_prob;
-        }
-
-        if let Some(ref mask) = cache.recurrent_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.recurrent_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dhx = dhx * mask / keep_prob;
+        let mut dcx = &dc_new * &cache.forget_gate;
+        if let Some(d) = dcx_zoneout {
+            dcx += &d;
         }
 
         (gradients, dx, dhx, dcx)
@@ -681,6 +325,24 @@ impl LSTMCell {
         optimizer.update(&format!("{}_w_hh", prefix), &mut self.w_hh, &gradients.w_hh);
         optimizer.update(&format!("{}_b_ih", prefix), &mut self.b_ih, &gradients.b_ih);
         optimizer.update(&format!("{}_b_hh", prefix), &mut self.b_hh, &gradients.b_hh);
+    }
+}
+
+pub(crate) fn masked(x: &Array2<f64>, mask: &Option<Array2<f64>>) -> Array2<f64> {
+    match mask {
+        Some(m) => x * m,
+        None => x.clone(),
+    }
+}
+
+/// Splits the gradient of `m * prev + (1 - m) * new` into its `new` and `prev` parts.
+pub(crate) fn split_zoneout(
+    grad: &Array2<f64>,
+    mask: &Option<Array2<f64>>,
+) -> (Array2<f64>, Option<Array2<f64>>) {
+    match mask {
+        Some(m) => (grad * &m.mapv(|v| 1.0 - v), Some(grad * m)),
+        None => (grad.clone(), None),
     }
 }
 
@@ -739,7 +401,7 @@ mod tests {
         let hidden_size = 3;
         let mut cell = LSTMCell::new(input_size, hidden_size)
             .with_input_dropout(0.5, false)
-            .with_output_dropout(0.5);
+            .with_recurrent_dropout(0.5, false);
 
         let input = arr2(&[[1.0], [0.5]]);
         let hx = arr2(&[[0.1], [0.2], [0.3]]);
@@ -749,7 +411,7 @@ mod tests {
         let (_hy, _cy, cache) = cell.forward_with_cache(&input, &hx, &cx);
 
         assert!(cache.input_dropout_mask.is_some());
-        assert!(cache.output_dropout_mask.is_some());
+        assert!(cache.recurrent_dropout_mask.is_some());
 
         let dhy = arr2(&[[1.0], [1.0], [1.0]]);
         let dcy = arr2(&[[0.0], [0.0], [0.0]]);
@@ -765,6 +427,6 @@ mod tests {
         cell.eval();
         let (_, _, cache_eval) = cell.forward_with_cache(&input, &hx, &cx);
         assert!(cache_eval.input_dropout_mask.is_none());
-        assert!(cache_eval.output_dropout_mask.is_none());
+        assert!(cache_eval.recurrent_dropout_mask.is_none());
     }
 }

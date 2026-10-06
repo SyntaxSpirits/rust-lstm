@@ -30,16 +30,14 @@ fn main() {
         .collect::<Vec<_>>();
 
     // Initialize the hidden state and cell state
-    let mut hx = Array2::zeros((hidden_size, 1));
-    let mut cx = Array2::zeros((hidden_size, 1));
+    let mut state = network.zero_state(1);
 
     // Process the sequence through the LSTM network
     let mut outputs = Vec::new();
     for input in sequence {
-        let (new_hx, new_cx) = network.forward(&input, &hx, &cx);
+        let (new_hx, next_state) = network.forward(&input, &state);
         outputs.push(new_hx.clone());
-        hx = new_hx;
-        cx = new_cx;
+        state = next_state;
     }
 
     // Print the outputs

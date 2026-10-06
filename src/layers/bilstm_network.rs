@@ -1,12 +1,16 @@
-use crate::layers::lstm_cell::{LSTMCell, LSTMCellCache, LSTMCellGradients};
+use crate::layers::lstm_cell::{masked, LSTMCell, LSTMCellCache, LSTMCellGradients};
 use crate::optimizers::Optimizer;
 use ndarray::Array2;
 
 /// Cache for bidirectional LSTM forward pass
+///
+/// All vectors are indexed `[layer][time]` in the original time order.
 #[derive(Clone)]
 pub struct BiLSTMNetworkCache {
-    pub forward_caches: Vec<LSTMCellCache>,
-    pub backward_caches: Vec<LSTMCellCache>,
+    pub forward_caches: Vec<Vec<LSTMCellCache>>,
+    pub backward_caches: Vec<Vec<LSTMCellCache>>,
+    pub forward_output_masks: Vec<Vec<Option<Array2<f64>>>>,
+    pub backward_output_masks: Vec<Vec<Option<Array2<f64>>>>,
 }
 
 /// Configuration for combining forward and backward outputs
@@ -190,67 +194,10 @@ impl BiLSTMNetwork {
 
     /// Forward pass for a complete sequence
     ///
-    /// This is the main method for BiLSTM processing. It runs the forward direction
-    /// from start to end, backward direction from end to start, then combines outputs.
+    /// Each layer runs one LSTM from start to end and another from end to start;
+    /// their outputs are combined and fed to the next layer.
     pub fn forward_sequence(&mut self, sequence: &[Array2<f64>]) -> Vec<Array2<f64>> {
-        let seq_len = sequence.len();
-        if seq_len == 0 {
-            return Vec::new();
-        }
-
-        // Process each layer sequentially
-        let mut layer_input_sequence = sequence.to_vec();
-
-        for layer_idx in 0..self.num_layers {
-            let mut forward_outputs = Vec::new();
-            let mut backward_outputs = Vec::new();
-
-            // Initialize states for this layer
-            let mut forward_hidden_state = Array2::zeros((self.hidden_size, 1));
-            let mut forward_cell_state = Array2::zeros((self.hidden_size, 1));
-            let mut backward_hidden_state = Array2::zeros((self.hidden_size, 1));
-            let mut backward_cell_state = Array2::zeros((self.hidden_size, 1));
-
-            // Forward direction
-            for input in layer_input_sequence.iter().take(seq_len) {
-                let (hy, cy) = self.forward_cells[layer_idx].forward(
-                    input,
-                    &forward_hidden_state,
-                    &forward_cell_state,
-                );
-
-                forward_hidden_state = hy.clone();
-                forward_cell_state = cy;
-                forward_outputs.push(hy);
-            }
-
-            // Backward direction
-            for t in (0..seq_len).rev() {
-                let (hy, cy) = self.backward_cells[layer_idx].forward(
-                    &layer_input_sequence[t],
-                    &backward_hidden_state,
-                    &backward_cell_state,
-                );
-
-                backward_hidden_state = hy.clone();
-                backward_cell_state = cy;
-                backward_outputs.push(hy);
-            }
-
-            // Reverse backward outputs to match forward sequence order
-            backward_outputs.reverse();
-
-            // Combine forward and backward outputs for this layer
-            let mut combined_outputs = Vec::new();
-            for (forward_out, backward_out) in forward_outputs.iter().zip(backward_outputs.iter()) {
-                combined_outputs.push(self.combine_outputs(forward_out, backward_out));
-            }
-
-            // Output of this layer becomes input to next layer
-            layer_input_sequence = combined_outputs;
-        }
-
-        layer_input_sequence
+        self.forward_sequence_with_cache(sequence).0
     }
 
     /// Forward pass with caching for training
@@ -259,86 +206,107 @@ impl BiLSTMNetwork {
         sequence: &[Array2<f64>],
     ) -> (Vec<Array2<f64>>, BiLSTMNetworkCache) {
         let seq_len = sequence.len();
-        if seq_len == 0 {
-            return (
-                Vec::new(),
-                BiLSTMNetworkCache {
-                    forward_caches: Vec::new(),
-                    backward_caches: Vec::new(),
-                },
-            );
-        }
-
-        let mut all_forward_caches = Vec::new();
-        let mut all_backward_caches = Vec::new();
-
-        // Process each layer sequentially
-        let mut layer_input_sequence = sequence.to_vec();
-
-        for layer_idx in 0..self.num_layers {
-            let mut forward_outputs = Vec::new();
-            let mut backward_outputs = Vec::new();
-            let mut forward_caches = Vec::new();
-            let mut backward_caches = Vec::new();
-
-            // Initialize states for this layer
-            let mut forward_hidden_state = Array2::zeros((self.hidden_size, 1));
-            let mut forward_cell_state = Array2::zeros((self.hidden_size, 1));
-            let mut backward_hidden_state = Array2::zeros((self.hidden_size, 1));
-            let mut backward_cell_state = Array2::zeros((self.hidden_size, 1));
-
-            // Forward direction with caching
-            for input in layer_input_sequence.iter().take(seq_len) {
-                let (hy, cy, cache) = self.forward_cells[layer_idx].forward_with_cache(
-                    input,
-                    &forward_hidden_state,
-                    &forward_cell_state,
-                );
-
-                forward_hidden_state = hy.clone();
-                forward_cell_state = cy;
-                forward_outputs.push(hy);
-                forward_caches.push(cache);
-            }
-
-            // Backward direction with caching
-            for t in (0..seq_len).rev() {
-                let (hy, cy, cache) = self.backward_cells[layer_idx].forward_with_cache(
-                    &layer_input_sequence[t],
-                    &backward_hidden_state,
-                    &backward_cell_state,
-                );
-
-                backward_hidden_state = hy.clone();
-                backward_cell_state = cy;
-                backward_outputs.push(hy);
-                backward_caches.push(cache);
-            }
-
-            // Reverse backward outputs and caches
-            backward_outputs.reverse();
-            backward_caches.reverse();
-
-            // Combine outputs for this layer
-            let mut combined_outputs = Vec::new();
-            for (forward_out, backward_out) in forward_outputs.iter().zip(backward_outputs.iter()) {
-                combined_outputs.push(self.combine_outputs(forward_out, backward_out));
-            }
-
-            // Store caches for this layer
-            all_forward_caches.extend(forward_caches);
-            all_backward_caches.extend(backward_caches);
-
-            // Output of this layer becomes input to next layer
-            layer_input_sequence = combined_outputs;
-        }
-
-        let cache = BiLSTMNetworkCache {
-            forward_caches: all_forward_caches,
-            backward_caches: all_backward_caches,
+        let batch_size = sequence.first().map_or(1, |x| x.ncols());
+        let mut cache = BiLSTMNetworkCache {
+            forward_caches: Vec::with_capacity(self.num_layers),
+            backward_caches: Vec::with_capacity(self.num_layers),
+            forward_output_masks: Vec::with_capacity(self.num_layers),
+            backward_output_masks: Vec::with_capacity(self.num_layers),
         };
+        if seq_len == 0 {
+            return (Vec::new(), cache);
+        }
 
-        (layer_input_sequence, cache)
+        let last = self.num_layers - 1;
+        let mut layer_input = sequence.to_vec();
+        for l in 0..self.num_layers {
+            let order: Vec<usize> = (0..seq_len).collect();
+            let reversed: Vec<usize> = (0..seq_len).rev().collect();
+            let (f_out, f_cache, f_masks) = run_direction(
+                &mut self.forward_cells[l],
+                &layer_input,
+                &order,
+                batch_size,
+                l < last,
+            );
+            let (b_out, b_cache, b_masks) = run_direction(
+                &mut self.backward_cells[l],
+                &layer_input,
+                &reversed,
+                batch_size,
+                l < last,
+            );
+            layer_input = f_out
+                .iter()
+                .zip(&b_out)
+                .map(|(f, b)| self.combine_outputs(f, b))
+                .collect();
+            cache.forward_caches.push(f_cache);
+            cache.backward_caches.push(b_cache);
+            cache.forward_output_masks.push(f_masks);
+            cache.backward_output_masks.push(b_masks);
+        }
+        (layer_input, cache)
+    }
+
+    /// Backpropagation through time for both directions.
+    ///
+    /// `d_outputs[t]` is the gradient of the loss with respect to the combined output
+    /// at step `t`. Returns the gradients of the forward cells, of the backward cells
+    /// and of every input.
+    pub fn backward_sequence(
+        &self,
+        d_outputs: &[Array2<f64>],
+        cache: &BiLSTMNetworkCache,
+    ) -> (
+        Vec<LSTMCellGradients>,
+        Vec<LSTMCellGradients>,
+        Vec<Array2<f64>>,
+    ) {
+        let (mut f_grads, mut b_grads) = self.zero_gradients();
+        let seq_len = d_outputs.len();
+        let mut d_layer = d_outputs.to_vec();
+        let h = self.hidden_size;
+
+        for l in (0..self.num_layers).rev() {
+            let (d_f, d_b): (Vec<_>, Vec<_>) = d_layer
+                .iter()
+                .enumerate()
+                .map(|(t, d)| {
+                    let (df, db) = match self.combine_mode {
+                        CombineMode::Concat => (
+                            d.slice(ndarray::s![..h, ..]).to_owned(),
+                            d.slice(ndarray::s![h.., ..]).to_owned(),
+                        ),
+                        CombineMode::Sum => (d.clone(), d.clone()),
+                        CombineMode::Average => (d * 0.5, d * 0.5),
+                    };
+                    (
+                        masked(&df, &cache.forward_output_masks[l][t]),
+                        masked(&db, &cache.backward_output_masks[l][t]),
+                    )
+                })
+                .unzip();
+
+            let forward_bptt: Vec<usize> = (0..seq_len).rev().collect();
+            let backward_bptt: Vec<usize> = (0..seq_len).collect();
+            let dx_f = backprop_direction(
+                &self.forward_cells[l],
+                &d_f,
+                &cache.forward_caches[l],
+                &forward_bptt,
+                &mut f_grads[l],
+            );
+            let dx_b = backprop_direction(
+                &self.backward_cells[l],
+                &d_b,
+                &cache.backward_caches[l],
+                &backward_bptt,
+                &mut b_grads[l],
+            );
+            d_layer = dx_f.iter().zip(&dx_b).map(|(a, b)| a + b).collect();
+        }
+        (f_grads, b_grads, d_layer)
     }
 
     /// Get references to forward and backward cells for serialization
@@ -403,6 +371,65 @@ impl BiLSTMNetwork {
 
         (forward_gradients, backward_gradients)
     }
+}
+
+/// Runs one direction of a layer over `inputs` in the given time order and returns
+/// outputs, caches and inter-layer dropout masks, all in the original time order.
+fn run_direction(
+    cell: &mut LSTMCell,
+    inputs: &[Array2<f64>],
+    order: &[usize],
+    batch_size: usize,
+    drop_output: bool,
+) -> (
+    Vec<Array2<f64>>,
+    Vec<LSTMCellCache>,
+    Vec<Option<Array2<f64>>>,
+) {
+    cell.reset_dropout_masks();
+    let n = inputs.len();
+    let mut outputs = vec![Array2::zeros((0, 0)); n];
+    let mut caches: Vec<Option<LSTMCellCache>> = vec![None; n];
+    let mut masks = vec![None; n];
+    let mut hx = Array2::zeros((cell.hidden_size, batch_size));
+    let mut cx = Array2::zeros((cell.hidden_size, batch_size));
+    for &t in order {
+        let (hy, cy, cache) = cell.forward_with_cache(&inputs[t], &hx, &cx);
+        let mask = if drop_output {
+            cell.output_dropout_mask(hy.raw_dim())
+        } else {
+            None
+        };
+        outputs[t] = masked(&hy, &mask);
+        masks[t] = mask;
+        caches[t] = Some(cache);
+        hx = hy;
+        cx = cy;
+    }
+    (outputs, caches.into_iter().flatten().collect(), masks)
+}
+
+/// BPTT for one direction; `order` visits the steps in reverse processing order.
+fn backprop_direction(
+    cell: &LSTMCell,
+    d_outputs: &[Array2<f64>],
+    caches: &[LSTMCellCache],
+    order: &[usize],
+    gradients: &mut LSTMCellGradients,
+) -> Vec<Array2<f64>> {
+    let batch_size = d_outputs.first().map_or(1, |d| d.ncols());
+    let mut dh_next = Array2::zeros((cell.hidden_size, batch_size));
+    let mut dc_next = Array2::zeros((cell.hidden_size, batch_size));
+    let mut d_inputs = vec![Array2::zeros((0, 0)); d_outputs.len()];
+    for &t in order {
+        let dh = &d_outputs[t] + &dh_next;
+        let (g, dx, dhx, dcx) = cell.backward(&dh, &dc_next, &caches[t]);
+        gradients.accumulate(&g);
+        dh_next = dhx;
+        dc_next = dcx;
+        d_inputs[t] = dx;
+    }
+    d_inputs
 }
 
 #[cfg(test)]

@@ -18,10 +18,9 @@ fn test_network_forward() {
     let mut network = LSTMNetwork::new(input_size, hidden_size, num_layers);
 
     let input = arr2(&[[1.0], [0.5]]);
-    let hx = arr2(&[[0.0], [0.0], [0.0]]);
-    let cx = arr2(&[[0.0], [0.0], [0.0]]);
+    let state = network.zero_state(1);
 
-    let (output, _) = network.forward(&input, &hx, &cx);
+    let (output, _) = network.forward(&input, &state);
 
     assert_eq!(output.shape(), &[3, 1]);
 }

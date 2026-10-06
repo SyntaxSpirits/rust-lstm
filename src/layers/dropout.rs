@@ -49,28 +49,32 @@ impl Dropout {
         self.mask = None;
     }
 
-    pub fn forward(&mut self, input: &Array2<f64>) -> Array2<f64> {
+    /// Clears the stored variational mask so the next sequence samples a new one.
+    pub fn reset(&mut self) {
+        self.mask = None;
+    }
+
+    /// Returns an inverted-dropout mask (entries 0 or 1/keep_prob) for the given shape,
+    /// or `None` when dropout is inactive. Variational dropout reuses its mask until
+    /// `reset` is called or the shape changes.
+    pub fn sample_mask(&mut self, shape: ndarray::Dim<[usize; 2]>) -> Option<Array2<f64>> {
         if !self.is_training || self.dropout_rate == 0.0 {
-            return input.clone();
+            return None;
         }
 
         let keep_prob = 1.0 - self.dropout_rate;
+        let reuse = self.variational && self.mask.as_ref().is_some_and(|m| m.raw_dim() == shape);
+        if !reuse {
+            self.mask = Some(self.generate_mask(shape, keep_prob));
+        }
+        self.mask.as_ref().map(|m| m / keep_prob)
+    }
 
-        let mask = if self.variational {
-            if let Some(ref mask) = self.mask {
-                mask.clone()
-            } else {
-                let new_mask = self.generate_mask(input.raw_dim(), keep_prob);
-                self.mask = Some(new_mask.clone());
-                new_mask
-            }
-        } else {
-            let new_mask = self.generate_mask(input.raw_dim(), keep_prob);
-            self.mask = Some(new_mask.clone());
-            new_mask
-        };
-
-        input * mask / keep_prob
+    pub fn forward(&mut self, input: &Array2<f64>) -> Array2<f64> {
+        match self.sample_mask(input.raw_dim()) {
+            Some(mask) => input * &mask,
+            None => input.clone(),
+        }
     }
 
     pub fn get_last_mask(&self) -> Option<&Array2<f64>> {
@@ -125,23 +129,37 @@ impl Zoneout {
         self.is_training = false;
     }
 
+    /// Mask of the units that keep their previous cell value. During evaluation the
+    /// mask is the constant zoneout rate, i.e. the expectation used by Krueger et al.
+    pub fn cell_mask(&self, shape: ndarray::Dim<[usize; 2]>) -> Option<Array2<f64>> {
+        self.mask(shape, self.cell_zoneout_rate)
+    }
+
+    /// Mask of the units that keep their previous hidden value.
+    pub fn hidden_mask(&self, shape: ndarray::Dim<[usize; 2]>) -> Option<Array2<f64>> {
+        self.mask(shape, self.hidden_zoneout_rate)
+    }
+
+    fn mask(&self, shape: ndarray::Dim<[usize; 2]>, rate: f64) -> Option<Array2<f64>> {
+        if rate == 0.0 {
+            return None;
+        }
+        if !self.is_training {
+            return Some(Array2::from_elem(shape, rate));
+        }
+        let dist = Uniform::new(0.0, 1.0);
+        Some(Array2::random(shape, dist).mapv(|x| if x < rate { 1.0 } else { 0.0 }))
+    }
+
     pub fn apply_cell_zoneout(
         &self,
         new_cell: &Array2<f64>,
         prev_cell: &Array2<f64>,
     ) -> Array2<f64> {
-        if !self.is_training || self.cell_zoneout_rate == 0.0 {
-            return new_cell.clone();
+        match self.cell_mask(new_cell.raw_dim()) {
+            Some(m) => zone(&m, new_cell, prev_cell),
+            None => new_cell.clone(),
         }
-
-        let keep_prob = 1.0 - self.cell_zoneout_rate;
-        let dist = Uniform::new(0.0, 1.0);
-        let mask = Array2::random(new_cell.raw_dim(), dist);
-
-        let keep_new = mask.mapv(|x| if x < keep_prob { 1.0 } else { 0.0 });
-        let keep_old = mask.mapv(|x| if x >= keep_prob { 1.0 } else { 0.0 });
-
-        &keep_new * new_cell + &keep_old * prev_cell
     }
 
     pub fn apply_hidden_zoneout(
@@ -149,19 +167,16 @@ impl Zoneout {
         new_hidden: &Array2<f64>,
         prev_hidden: &Array2<f64>,
     ) -> Array2<f64> {
-        if !self.is_training || self.hidden_zoneout_rate == 0.0 {
-            return new_hidden.clone();
+        match self.hidden_mask(new_hidden.raw_dim()) {
+            Some(m) => zone(&m, new_hidden, prev_hidden),
+            None => new_hidden.clone(),
         }
-
-        let keep_prob = 1.0 - self.hidden_zoneout_rate;
-        let dist = Uniform::new(0.0, 1.0);
-        let mask = Array2::random(new_hidden.raw_dim(), dist);
-
-        let keep_new = mask.mapv(|x| if x < keep_prob { 1.0 } else { 0.0 });
-        let keep_old = mask.mapv(|x| if x >= keep_prob { 1.0 } else { 0.0 });
-
-        &keep_new * new_hidden + &keep_old * prev_hidden
     }
+}
+
+/// Mixes new and previous states: `m * prev + (1 - m) * new`.
+pub fn zone(mask: &Array2<f64>, new: &Array2<f64>, prev: &Array2<f64>) -> Array2<f64> {
+    mask * prev + &mask.mapv(|m| 1.0 - m) * new
 }
 
 #[cfg(test)]

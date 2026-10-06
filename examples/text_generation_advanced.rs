@@ -132,19 +132,17 @@ impl CharacterLSTM {
             let start = chars.len().saturating_sub(self.sequence_length);
             let window: Vec<char> = chars[start..].to_vec();
 
-            let mut h = Array2::zeros((self.hidden_size, 1));
-            let mut c = Array2::zeros((self.hidden_size, 1));
+            let mut state = inference_net.zero_state(1);
 
             for ch in &window {
                 let idx = self.vocab.char_to_index(*ch).unwrap_or(0);
                 let emb = self.embedding.lookup(idx);
                 let input = Array2::from_shape_vec((emb.len(), 1), emb.to_vec()).unwrap();
-                let (new_h, new_c) = inference_net.forward(&input, &h, &c);
-                h = new_h;
-                c = new_c;
+                let (_, next_state) = inference_net.forward(&input, &state);
+                state = next_state;
             }
 
-            let logits_2d = self.output_layer.forward(&h);
+            let logits_2d = self.output_layer.forward(&state.h[0]);
             let logits = logits_2d.column(0).to_owned();
 
             let next_idx = sample_with_temperature(&logits, temperature);

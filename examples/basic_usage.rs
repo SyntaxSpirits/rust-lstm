@@ -21,11 +21,10 @@ fn main() {
     let input = Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap();
 
     // Initialize the hidden state and cell state
-    let hx = Array2::zeros((hidden_size, 1));
-    let cx = Array2::zeros((hidden_size, 1));
+    let state = network.zero_state(1);
 
     // Perform a forward pass
-    let (output, _) = network.forward(&input, &hx, &cx);
+    let (output, _) = network.forward(&input, &state);
 
     // Print the output
     println!("Output: {:?}", output);

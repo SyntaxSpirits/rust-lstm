@@ -1,6 +1,6 @@
 [package]
 name = "rust-lstm"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
 rust-version = "1.70"
@@ -100,3 +100,7 @@ path = "examples/linear_layer_example.rs"
 [[example]]
 name = "text_utils_example"
 path = "examples/text_utils_example.rs"
+
+[[example]]
+name = "export_reference_cases"
+path = "examples/export_reference_cases.rs"

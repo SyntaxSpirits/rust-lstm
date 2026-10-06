@@ -1,0 +1,10 @@
+task,hidden,batch,microseconds
+inference_step,16,1,26.54
+forward_backward_T50,16,1,3093.85
+forward_backward_T50,16,16,3914.83
+inference_step,64,1,28.88
+forward_backward_T50,64,1,3593.92
+forward_backward_T50,64,16,5214.44
+inference_step,256,1,42.58
+forward_backward_T50,256,1,12428.98
+forward_backward_T50,256,16,15453.69

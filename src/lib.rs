@@ -50,15 +50,15 @@ pub use layers::bilstm_network::{BiLSTMNetwork, BiLSTMNetworkCache, CombineMode}
 pub use layers::dropout::{Dropout, Zoneout};
 pub use layers::gru_cell::{GRUCell, GRUCellCache, GRUCellGradients};
 pub use layers::linear::{LinearGradients, LinearLayer};
-pub use layers::lstm_cell::{LSTMCell, LSTMCellBatchCache, LSTMCellCache, LSTMCellGradients};
-pub use layers::peephole_lstm_cell::PeepholeLSTMCell;
+pub use layers::lstm_cell::{LSTMCell, LSTMCellCache, LSTMCellGradients};
+pub use layers::peephole_lstm_cell::{
+    PeepholeLSTMCell, PeepholeLSTMCellCache, PeepholeLSTMCellGradients,
+};
 pub use loss::{CrossEntropyLoss, LossFunction, MAELoss, MSELoss};
 pub use models::gru_network::{
     GRUNetwork, GRUNetworkCache, LayerDropoutConfig as GRULayerDropoutConfig,
 };
-pub use models::lstm_network::{
-    LSTMNetwork, LSTMNetworkBatchCache, LSTMNetworkCache, LayerDropoutConfig,
-};
+pub use models::lstm_network::{LSTMNetwork, LSTMNetworkCache, LSTMState, LayerDropoutConfig};
 pub use optimizers::{Adam, RMSprop, ScheduledOptimizer, SGD};
 pub use persistence::{ModelMetadata, ModelPersistence, PersistenceError, PersistentModel};
 pub use schedulers::{
@@ -86,10 +86,10 @@ mod tests {
     fn test_library_integration() {
         let mut network = models::lstm_network::LSTMNetwork::new(2, 3, 1);
         let input = arr2(&[[1.0], [0.5]]);
-        let hx = arr2(&[[0.0], [0.0], [0.0]]);
-        let cx = arr2(&[[0.0], [0.0], [0.0]]);
+        let state = network.zero_state(1);
 
-        let (hy, cy) = network.forward(&input, &hx, &cx);
+        let (hy, next) = network.forward(&input, &state);
+        let cy = &next.c[0];
 
         assert_eq!(hy.shape(), &[3, 1]);
         assert_eq!(cy.shape(), &[3, 1]);
@@ -103,16 +103,17 @@ mod tests {
             .with_output_dropout(0.1);
 
         let input = arr2(&[[1.0], [0.5]]);
-        let hx = arr2(&[[0.0], [0.0], [0.0]]);
-        let cx = arr2(&[[0.0], [0.0], [0.0]]);
+        let state = network.zero_state(1);
 
         // Test training mode
         network.train();
-        let (hy_train, cy_train) = network.forward(&input, &hx, &cx);
+        let (hy_train, next_train) = network.forward(&input, &state);
+        let cy_train = &next_train.c[0];
 
         // Test evaluation mode
         network.eval();
-        let (hy_eval, cy_eval) = network.forward(&input, &hx, &cx);
+        let (hy_eval, next_eval) = network.forward(&input, &state);
+        let cy_eval = &next_eval.c[0];
 
         assert_eq!(hy_train.shape(), &[3, 1]);
         assert_eq!(cy_train.shape(), &[3, 1]);
