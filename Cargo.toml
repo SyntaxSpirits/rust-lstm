@@ -1,6 +1,6 @@
 [package]
 name = "rust-lstm"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["Alex Kholodniak <alexandrkholodniak@gmail.com>"]
 edition = "2021"
 rust-version = "1.70"

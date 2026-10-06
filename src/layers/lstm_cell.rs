@@ -77,7 +77,7 @@ pub struct LSTMCell {
 }
 
 impl LSTMCell {
-    /// Creates new LSTM cell with Xavier-uniform weight initialization
+    /// Creates a new LSTM cell with weights drawn from U(-0.1, 0.1) and zero biases
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let dist = Uniform::new(-0.1, 0.1);
 

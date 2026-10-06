@@ -35,15 +35,16 @@ graph TD
 
 - **LSTM, BiLSTM & GRU Networks** with multi-layer support
 - **Linear (Dense) Layer** for classification and output projection
-- **Complete Training System** with backpropagation through time (BPTT)
+- **Complete Training System** with full backpropagation through time (BPTT)
 - **Multiple Optimizers**: SGD, Adam, RMSprop with learning rate scheduling
 - **Learning Rate Scheduling**: 12 schedulers including OneCycle, Warmup, Cyclical, Polynomial
 - **Early Stopping**: Configurable patience and metric monitoring
 - **Loss Functions**: MSE, MAE, Cross-entropy with softmax
 - **Advanced Dropout**: Input, recurrent, output, variational dropout, and zoneout
-- **Batch Processing**: Efficient batch operations
+- **Batch Processing**: Column-batched sequences and padded variable-length batches
 - **Model Persistence**: Save/load models in JSON or binary format
-- **Peephole LSTM variant** for enhanced performance
+- **Peephole LSTM cell** (Gers & Schmidhuber) with forward and backward passes
+- **Verified gradients**: every backward pass is checked against finite differences, and LSTM, BiLSTM and GRU outputs and gradients match PyTorch to within 1e-15 (see [Correctness](#correctness))
 
 ## Quick Start
 
@@ -51,7 +52,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-lstm = "0.8"
+rust-lstm = "0.9"
 ```
 
 ### Basic Usage
@@ -64,15 +65,19 @@ fn main() {
     // Create LSTM network
     let mut network = LSTMNetwork::new(3, 10, 2); // input_size, hidden_size, num_layers
     
-    // Create input data
+    // Inputs are column vectors (features x batch); the state holds h and c of every layer
     let input = Array2::from_shape_vec((3, 1), vec![0.5, 0.1, -0.3]).unwrap();
     let state = network.zero_state(1);
     
-    // Forward pass
-    let (output, _) = network.forward(&input, &state);
+    // One time step: output of the top layer and the next state
+    let (output, next_state) = network.forward(&input, &state);
     println!("Output: {:?}", output);
+    println!("Layers in state: {}", next_state.h.len());
 }
 ```
+
+For whole sequences use `forward_sequence`, or `forward_sequence_with_cache` followed by
+`backward_sequence` to obtain gradients by backpropagation through time.
 
 ### Training Example
 
@@ -372,11 +377,11 @@ cargo run --example model_inspection
 ### Dropout Types
 - **Input Dropout**: Applied to inputs before computing gates
 - **Recurrent Dropout**: Applied to hidden states with variational support
-- **Output Dropout**: Applied to layer outputs
-- **Zoneout**: RNN-specific regularization preserving previous states
+- **Output Dropout**: Applied between stacked layers (the recurrent state itself is not dropped)
+- **Zoneout**: RNN-specific regularization preserving previous states; its expectation is used at evaluation time
 
 ### Optimizers
-- **SGD**: Stochastic gradient descent with momentum
+- **SGD**: Plain stochastic gradient descent
 - **Adam**: Adaptive moment estimation with bias correction
 - **RMSprop**: Root mean square propagation
 
@@ -395,6 +400,15 @@ cargo run --example model_inspection
 - **WarmupScheduler**: Gradual increase wrapper for any scheduler
 - **LinearLR**: Linear interpolation between learning rates
 
+## Correctness
+
+- `cargo test --test gradient_check` compares every analytic gradient (LSTM with 1–3 layers,
+  with variational dropout and zoneout, GRU, BiLSTM in all combine modes, peephole LSTM,
+  embedding → LSTM → linear → cross-entropy) with central finite differences.
+- `validation/` loads the weights of randomly initialised networks into `torch.nn.LSTM` and
+  compares outputs and BPTT gradients in float64; the largest difference is 3.3e-16
+  ([results](validation/results/parity.txt)). This check runs in CI.
+
 ## Testing
 
 ```bash
@@ -403,6 +417,9 @@ cargo test
 
 ## Version History
 
+- **v0.9.0**: Full BPTT, per-layer recurrent state, verified gradients (breaking API change, see CHANGELOG)
+- **v0.8.0**: Text generation utilities
+- **v0.7.0**: Linear (dense) layer
 - **v0.6.1**: Fixed text generation in advanced example
 - **v0.6.0**: Early stopping support with configurable patience and metric monitoring
 - **v0.5.0**: Model persistence (JSON/binary), batch processing
@@ -413,7 +430,13 @@ cargo test
 
 ## Contributing
 
-Contributions are welcome! Please submit issues, feature requests, or pull requests.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report bugs,
+ask questions and submit pull requests.
+
+## Citation
+
+If you use rust-lstm in research, please cite it using the metadata in
+[CITATION.cff](CITATION.cff).
 
 ## License
 

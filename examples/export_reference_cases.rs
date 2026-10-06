@@ -5,8 +5,7 @@
 
 use ndarray::Array2;
 use rust_lstm::{
-    BiLSTMNetwork, CombineMode, GRUNetwork, LSTMCellGradients, LSTMNetwork, LossFunction,
-    MSELoss,
+    BiLSTMNetwork, CombineMode, GRUNetwork, LSTMCellGradients, LSTMNetwork, LossFunction, MSELoss,
 };
 use serde_json::{json, Value};
 

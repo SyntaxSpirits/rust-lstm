@@ -102,7 +102,7 @@ pub struct GRUCell {
 }
 
 impl GRUCell {
-    /// Creates new GRU cell with Xavier-uniform weight initialization
+    /// Creates a new GRU cell with weights drawn from U(-0.1, 0.1) and zero biases
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let dist = Uniform::new(-0.1, 0.1);
 

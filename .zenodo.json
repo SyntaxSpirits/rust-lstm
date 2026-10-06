@@ -1,0 +1,33 @@
+{
+  "title": "rust-lstm: recurrent neural networks with verified backpropagation through time in Rust",
+  "upload_type": "software",
+  "description": "A dependency-light Rust library for LSTM, GRU, bidirectional and peephole LSTM networks with training by backpropagation through time, dropout and zoneout regularisation, optimisers, learning-rate schedulers and model persistence. Every backward pass is checked against finite differences, and outputs and gradients are compared with PyTorch in continuous integration.",
+  "creators": [
+    {
+      "name": "Kholodniak, Oleksandr",
+      "affiliation": "National Aerospace University \"Kharkiv Aviation Institute\"",
+      "orcid": "0009-0000-1012-7361"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "recurrent neural networks",
+    "LSTM",
+    "GRU",
+    "backpropagation through time",
+    "Rust",
+    "time series"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/SyntaxSpirits/rust-lstm",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://crates.io/crates/rust-lstm",
+      "relation": "isIdenticalTo",
+      "scheme": "url"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "rust-lstm: recurrent neural networks with verified backpropagation through time in Rust"
+type: software
+authors:
+  - given-names: Oleksandr
+    family-names: Kholodniak
+    email: alexandrkholodniak@gmail.com
+    affiliation: "National Aerospace University \"Kharkiv Aviation Institute\""
+    orcid: "https://orcid.org/0009-0000-1012-7361"
+version: 0.9.0
+date-released: 2026-10-06
+license: MIT
+repository-code: "https://github.com/SyntaxSpirits/rust-lstm"
+url: "https://docs.rs/rust-lstm"
+keywords:
+  - recurrent neural networks
+  - LSTM
+  - GRU
+  - backpropagation through time
+  - Rust
+  - time series

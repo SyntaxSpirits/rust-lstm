@@ -11,7 +11,7 @@ const INPUT: usize = 16;
 const SEQ_LEN: usize = 50;
 
 fn median_micros(repeats: usize, mut f: impl FnMut()) -> f64 {
-    for _ in 0..repeats.div_ceil(10) {
+    for _ in 0..repeats / 10 + 1 {
         f();
     }
     let mut samples: Vec<f64> = (0..repeats)
