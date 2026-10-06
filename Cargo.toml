@@ -100,3 +100,7 @@ path = "examples/linear_layer_example.rs"
 [[example]]
 name = "text_utils_example"
 path = "examples/text_utils_example.rs"
+
+[[example]]
+name = "export_reference_cases"
+path = "examples/export_reference_cases.rs"

@@ -33,3 +33,4 @@ lcov.info
 *.profraw
 .cursor/
 .claude/
+/validation/cases.json
