@@ -15,5 +15,5 @@ python validation/benchmark_pytorch.py --threads 1 --dtype float64 > validation/
 ```
 
 `results/` holds the output of these commands on an Apple M1 Pro (macOS 14.5,
-Rust 1.86, PyTorch 2.9.1). Finite-difference gradient checks for every layer run
+Rust 1.86): the parity check with PyTorch 2.14.1, the timings with PyTorch 2.9.1. Finite-difference gradient checks for every layer run
 with `cargo test --test gradient_check`.
