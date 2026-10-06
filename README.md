@@ -4,6 +4,7 @@
 [![Documentation](https://docs.rs/rust-lstm/badge.svg)](https://docs.rs/rust-lstm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23178447.svg)](https://doi.org/10.5281/zenodo.23178447)
 
 A comprehensive LSTM (Long Short-Term Memory) neural network library implemented in Rust with complete training capabilities, multiple optimizers, and advanced regularization.
 
@@ -436,7 +437,8 @@ ask questions and submit pull requests.
 ## Citation
 
 If you use rust-lstm in research, please cite it using the metadata in
-[CITATION.cff](CITATION.cff).
+[CITATION.cff](CITATION.cff). Every release is archived on Zenodo under the DOI
+[10.5281/zenodo.23178447](https://doi.org/10.5281/zenodo.23178447), which always resolves to the latest version.
 
 ## License
 
