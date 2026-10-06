@@ -402,6 +402,11 @@ cargo run --example model_inspection
 - **WarmupScheduler**: Gradual increase wrapper for any scheduler
 - **LinearLR**: Linear interpolation between learning rates
 
+## Reproducibility
+
+Call `rust_lstm::seed(42)` before building and training a model: weight initialisation,
+dropout and zoneout masks and text sampling on that thread then repeat exactly.
+
 ## Correctness
 
 - `cargo test --test gradient_check` compares every analytic gradient (LSTM with 1–3 layers,

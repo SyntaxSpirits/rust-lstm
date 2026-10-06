@@ -3,9 +3,9 @@
 //! Provides vocabulary management, character embeddings, and sampling strategies.
 
 use crate::optimizers::Optimizer;
+use crate::random::{random_array, unit};
 use ndarray::{Array1, Array2};
 use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
 use std::collections::HashMap;
 
 /// Character vocabulary for text generation tasks.
@@ -120,7 +120,7 @@ impl CharacterEmbedding {
     /// Create new embedding with random initialization.
     pub fn new(vocab_size: usize, embed_dim: usize) -> Self {
         let scale = (1.0 / embed_dim as f64).sqrt();
-        let weight = Array2::random((vocab_size, embed_dim), Uniform::new(-scale, scale));
+        let weight = random_array((vocab_size, embed_dim), Uniform::new(-scale, scale));
 
         Self {
             weight,
@@ -250,7 +250,7 @@ pub fn sample_with_temperature(logits: &Array1<f64>, temperature: f64) -> usize 
     let probs: Vec<f64> = exp_vals.iter().map(|&x| x / sum).collect();
 
     // Sample from distribution
-    let mut rng_val = rand::random::<f64>();
+    let mut rng_val = unit();
     for (i, &prob) in probs.iter().enumerate() {
         rng_val -= prob;
         if rng_val <= 0.0 {
@@ -285,7 +285,7 @@ pub fn sample_top_k(logits: &Array1<f64>, k: usize, temperature: f64) -> usize {
     let probs: Vec<f64> = exp_vals.iter().map(|&x| x / sum).collect();
 
     // Sample
-    let mut rng_val = rand::random::<f64>();
+    let mut rng_val = unit();
     for (i, &prob) in probs.iter().enumerate() {
         rng_val -= prob;
         if rng_val <= 0.0 {
@@ -330,7 +330,7 @@ pub fn sample_nucleus(logits: &Array1<f64>, p: f64, temperature: f64) -> usize {
     let nucleus_probs: Vec<f64> = nucleus.iter().map(|(_, prob)| prob / nucleus_sum).collect();
 
     // Sample from nucleus
-    let mut rng_val = rand::random::<f64>();
+    let mut rng_val = unit();
     for (i, &prob) in nucleus_probs.iter().enumerate() {
         rng_val -= prob;
         if rng_val <= 0.0 {

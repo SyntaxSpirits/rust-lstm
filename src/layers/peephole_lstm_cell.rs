@@ -1,7 +1,8 @@
 use crate::optimizers::Optimizer;
+use crate::random::random_array;
 use crate::utils::sigmoid;
 use ndarray::{Array2, Axis};
-use rand_distr::{Distribution, Normal};
+use rand_distr::Normal;
 
 /// Gradients of every `PeepholeLSTMCell` parameter; field names match the cell.
 #[derive(Clone)]
@@ -69,26 +70,25 @@ impl PeepholeLSTMCell {
     /// Create new peephole LSTM cell with Gaussian weight initialization
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let dist = Normal::new(0.0, 0.1).unwrap();
-        let mut rng = rand::thread_rng();
 
-        let w_xi = Self::random_matrix(&dist, &mut rng, hidden_size, input_size);
-        let w_hi = Self::random_matrix(&dist, &mut rng, hidden_size, hidden_size);
-        let b_i = Self::random_vector_2d(&dist, &mut rng, hidden_size);
-        let w_ci = Self::random_vector_2d(&dist, &mut rng, hidden_size);
+        let w_xi = random_array((hidden_size, input_size), dist);
+        let w_hi = random_array((hidden_size, hidden_size), dist);
+        let b_i = random_array((hidden_size, 1), dist);
+        let w_ci = random_array((hidden_size, 1), dist);
 
-        let w_xf = Self::random_matrix(&dist, &mut rng, hidden_size, input_size);
-        let w_hf = Self::random_matrix(&dist, &mut rng, hidden_size, hidden_size);
-        let b_f = Self::random_vector_2d(&dist, &mut rng, hidden_size);
-        let w_cf = Self::random_vector_2d(&dist, &mut rng, hidden_size);
+        let w_xf = random_array((hidden_size, input_size), dist);
+        let w_hf = random_array((hidden_size, hidden_size), dist);
+        let b_f = random_array((hidden_size, 1), dist);
+        let w_cf = random_array((hidden_size, 1), dist);
 
-        let w_xc = Self::random_matrix(&dist, &mut rng, hidden_size, input_size);
-        let w_hc = Self::random_matrix(&dist, &mut rng, hidden_size, hidden_size);
-        let b_c = Self::random_vector_2d(&dist, &mut rng, hidden_size);
+        let w_xc = random_array((hidden_size, input_size), dist);
+        let w_hc = random_array((hidden_size, hidden_size), dist);
+        let b_c = random_array((hidden_size, 1), dist);
 
-        let w_xo = Self::random_matrix(&dist, &mut rng, hidden_size, input_size);
-        let w_ho = Self::random_matrix(&dist, &mut rng, hidden_size, hidden_size);
-        let b_o = Self::random_vector_2d(&dist, &mut rng, hidden_size);
-        let w_co = Self::random_vector_2d(&dist, &mut rng, hidden_size);
+        let w_xo = random_array((hidden_size, input_size), dist);
+        let w_ho = random_array((hidden_size, hidden_size), dist);
+        let b_o = random_array((hidden_size, 1), dist);
+        let w_co = random_array((hidden_size, 1), dist);
 
         Self {
             w_xi,
@@ -107,27 +107,6 @@ impl PeepholeLSTMCell {
             b_o,
             w_co,
         }
-    }
-
-    fn random_matrix(
-        dist: &Normal<f64>,
-        rng: &mut impl rand::Rng,
-        rows: usize,
-        cols: usize,
-    ) -> Array2<f64> {
-        let mut arr = Array2::<f64>::zeros((rows, cols));
-        for val in arr.iter_mut() {
-            *val = dist.sample(rng);
-        }
-        arr
-    }
-
-    fn random_vector_2d(dist: &Normal<f64>, rng: &mut impl rand::Rng, len: usize) -> Array2<f64> {
-        let mut arr = Array2::<f64>::zeros((len, 1));
-        for val in arr.iter_mut() {
-            *val = dist.sample(rng);
-        }
-        arr
     }
 
     /// Forward pass implementing peephole LSTM equations
