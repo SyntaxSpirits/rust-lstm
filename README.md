@@ -41,7 +41,7 @@ graph TD
 - **Learning Rate Scheduling**: 12 schedulers including OneCycle, Warmup, Cyclical, Polynomial
 - **Early Stopping**: Configurable patience and metric monitoring
 - **Loss Functions**: MSE, MAE, Cross-entropy with softmax
-- **Advanced Dropout**: Input, recurrent, output, variational dropout, and zoneout
+- **Advanced Dropout**: Input, recurrent, output, cell-update and variational dropout, and zoneout
 - **Batch Processing**: Column-batched sequences and padded variable-length batches
 - **Model Persistence**: Save/load models in JSON or binary format
 - **Peephole LSTM cell** (Gers & Schmidhuber) with forward and backward passes
@@ -379,6 +379,7 @@ cargo run --example model_inspection
 - **Input Dropout**: Applied to inputs before computing gates
 - **Recurrent Dropout**: Applied to hidden states with variational support
 - **Output Dropout**: Applied between stacked layers (the recurrent state itself is not dropped)
+- **Cell-Update Dropout**: Applied to the LSTM candidate update g_t or the GRU candidate state, so memory is never erased (Semeniuta et al., 2016)
 - **Zoneout**: RNN-specific regularization preserving previous states; its expectation is used at evaluation time
 
 ### Optimizers

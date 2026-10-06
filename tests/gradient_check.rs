@@ -168,6 +168,17 @@ fn lstm_network_with_dropout_and_zoneout_matches_finite_differences() {
 }
 
 #[test]
+fn lstm_network_with_cell_update_dropout_matches_finite_differences() {
+    let mut net = LSTMNetwork::new(3, 4, 2).with_cell_update_dropout(0.4, true);
+    net.train();
+    let xs = sequence(5, 3, 2, 4);
+    let ys = sequence(5, 4, 2, 75);
+    let state = net.zero_state(2);
+    net.forward(&xs[0], &state);
+    check_lstm(&net, &xs, &ys, "cell update dropout");
+}
+
+#[test]
 fn trainer_gradients_match_finite_differences() {
     let mut net = LSTMNetwork::new(2, 3, 2);
     net.eval();
@@ -211,7 +222,8 @@ fn gru_network_bptt_matches_finite_differences() {
     for layers in 1..=2 {
         let mut net = GRUNetwork::new(3, 4, layers)
             .with_input_dropout(0.3, true)
-            .with_recurrent_dropout(0.3, true);
+            .with_recurrent_dropout(0.3, true)
+            .with_candidate_dropout(0.3, true);
         net.train();
         let xs = sequence(5, 3, 2, 5);
         let ys = sequence(5, 4, 2, 60);

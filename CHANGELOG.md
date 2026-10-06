@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Cell-update dropout (Semeniuta et al., 2016): `with_cell_update_dropout` on `LSTMCell`,
+  `LSTMNetwork`, `BiLSTMNetwork` and `LayerDropoutConfig` drops units of the candidate
+  update g_t instead of the state, so the memory itself is never erased.
+- Candidate dropout for GRUs: `with_candidate_dropout` on `GRUCell`, `GRUNetwork` and the
+  GRU `LayerDropoutConfig`.
+
 ## [0.9.0] - 2026-10-06
 
 ### Fixed

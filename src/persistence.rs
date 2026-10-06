@@ -63,6 +63,7 @@ impl From<SerializableLSTMCell> for LSTMCell {
             input_dropout: None,
             recurrent_dropout: None,
             output_dropout: None,
+            cell_update_dropout: None,
             zoneout: None,
             is_training: true,
         }

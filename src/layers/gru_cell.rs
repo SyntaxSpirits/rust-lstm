@@ -71,6 +71,7 @@ pub struct GRUCellCache {
     pub hy: Array2<f64>,
     pub input_dropout_mask: Option<Array2<f64>>,
     pub recurrent_dropout_mask: Option<Array2<f64>>,
+    pub candidate_dropout_mask: Option<Array2<f64>>,
 }
 
 /// GRU cell with trainable parameters and dropout support
@@ -98,6 +99,7 @@ pub struct GRUCell {
     pub input_dropout: Option<Dropout>,
     pub recurrent_dropout: Option<Dropout>,
     pub output_dropout: Option<Dropout>,
+    pub candidate_dropout: Option<Dropout>,
     pub is_training: bool,
 }
 
@@ -141,6 +143,7 @@ impl GRUCell {
             input_dropout: None,
             recurrent_dropout: None,
             output_dropout: None,
+            candidate_dropout: None,
             is_training: true,
         }
     }
@@ -168,44 +171,41 @@ impl GRUCell {
         self
     }
 
+    /// Drops units of the candidate state n_t before it is mixed into the hidden
+    /// state, the GRU analogue of cell-update dropout (Semeniuta et al., 2016).
+    pub fn with_candidate_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
+        self.candidate_dropout = Some(if variational {
+            Dropout::variational(dropout_rate)
+        } else {
+            Dropout::new(dropout_rate)
+        });
+        self
+    }
+
+    fn dropouts(&mut self) -> impl Iterator<Item = &mut Dropout> {
+        [
+            &mut self.input_dropout,
+            &mut self.recurrent_dropout,
+            &mut self.output_dropout,
+            &mut self.candidate_dropout,
+        ]
+        .into_iter()
+        .flatten()
+    }
+
     pub fn train(&mut self) {
         self.is_training = true;
-        if let Some(ref mut dropout) = self.input_dropout {
-            dropout.train();
-        }
-        if let Some(ref mut dropout) = self.recurrent_dropout {
-            dropout.train();
-        }
-        if let Some(ref mut dropout) = self.output_dropout {
-            dropout.train();
-        }
+        self.dropouts().for_each(Dropout::train);
     }
 
     pub fn eval(&mut self) {
         self.is_training = false;
-        if let Some(ref mut dropout) = self.input_dropout {
-            dropout.eval();
-        }
-        if let Some(ref mut dropout) = self.recurrent_dropout {
-            dropout.eval();
-        }
-        if let Some(ref mut dropout) = self.output_dropout {
-            dropout.eval();
-        }
+        self.dropouts().for_each(Dropout::eval);
     }
 
     /// Clears variational dropout masks; call at the start of every sequence.
     pub fn reset_dropout_masks(&mut self) {
-        for dropout in [
-            &mut self.input_dropout,
-            &mut self.recurrent_dropout,
-            &mut self.output_dropout,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            dropout.reset();
-        }
+        self.dropouts().for_each(Dropout::reset);
     }
 
     /// Samples the dropout mask applied to this cell's output before it is fed to
@@ -248,7 +248,12 @@ impl GRUCell {
         let reset_hidden = &reset_gate * &hd;
         let new_gate = (self.w_ih.dot(&x) + &self.b_ih + self.w_hh.dot(&reset_hidden) + &self.b_hh)
             .mapv(f64::tanh);
-        let hy = &update_gate.mapv(|z| 1.0 - z) * hx + &update_gate * &new_gate;
+        let candidate_mask = self
+            .candidate_dropout
+            .as_mut()
+            .and_then(|d| d.sample_mask(hx.raw_dim()));
+        let hy = &update_gate.mapv(|z| 1.0 - z) * hx
+            + &update_gate * &masked(&new_gate, &candidate_mask);
 
         let cache = GRUCellCache {
             input: x,
@@ -261,6 +266,7 @@ impl GRUCell {
             hy: hy.clone(),
             input_dropout_mask: input_mask,
             recurrent_dropout_mask: recurrent_mask,
+            candidate_dropout_mask: candidate_mask,
         };
         (hy, cache)
     }
@@ -278,8 +284,9 @@ impl GRUCell {
         let r = &cache.reset_gate;
         let n = &cache.new_gate;
 
-        let dz_raw = dhy * &(n - &cache.hx) * &z.mapv(|v| v * (1.0 - v));
-        let dn_raw = dhy * z * &n.mapv(|v| 1.0 - v * v);
+        let mask = &cache.candidate_dropout_mask;
+        let dz_raw = dhy * &(masked(n, mask) - &cache.hx) * &z.mapv(|v| v * (1.0 - v));
+        let dn_raw = masked(&(dhy * z), mask) * &n.mapv(|v| 1.0 - v * v);
         let d_reset_hidden = self.w_hh.t().dot(&dn_raw);
         let dr_raw = &d_reset_hidden * &cache.hx_dropped * &r.mapv(|v| v * (1.0 - v));
 
