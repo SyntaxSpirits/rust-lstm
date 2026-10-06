@@ -1,5 +1,5 @@
-use crate::layers::dropout::Dropout;
-use crate::layers::lstm_cell::masked;
+use crate::layers::dropout::{zone, Dropout, Zoneout};
+use crate::layers::lstm_cell::{masked, split_zoneout};
 use crate::utils::sigmoid;
 use ndarray::{Array2, Axis};
 use ndarray_rand::rand_distr::Uniform;
@@ -72,6 +72,7 @@ pub struct GRUCellCache {
     pub input_dropout_mask: Option<Array2<f64>>,
     pub recurrent_dropout_mask: Option<Array2<f64>>,
     pub candidate_dropout_mask: Option<Array2<f64>>,
+    pub zoneout_mask: Option<Array2<f64>>,
 }
 
 /// GRU cell with trainable parameters and dropout support
@@ -100,6 +101,8 @@ pub struct GRUCell {
     pub recurrent_dropout: Option<Dropout>,
     pub output_dropout: Option<Dropout>,
     pub candidate_dropout: Option<Dropout>,
+    /// Zoneout of the hidden state (Krueger et al., 2017); only the hidden rate is used.
+    pub zoneout: Option<Zoneout>,
     pub is_training: bool,
 }
 
@@ -144,6 +147,7 @@ impl GRUCell {
             recurrent_dropout: None,
             output_dropout: None,
             candidate_dropout: None,
+            zoneout: None,
             is_training: true,
         }
     }
@@ -182,6 +186,12 @@ impl GRUCell {
         self
     }
 
+    /// Each hidden unit keeps its previous value with probability `rate`.
+    pub fn with_zoneout(mut self, rate: f64) -> Self {
+        self.zoneout = Some(Zoneout::new(0.0, rate));
+        self
+    }
+
     fn dropouts(&mut self) -> impl Iterator<Item = &mut Dropout> {
         [
             &mut self.input_dropout,
@@ -196,11 +206,17 @@ impl GRUCell {
     pub fn train(&mut self) {
         self.is_training = true;
         self.dropouts().for_each(Dropout::train);
+        if let Some(ref mut zoneout) = self.zoneout {
+            zoneout.train();
+        }
     }
 
     pub fn eval(&mut self) {
         self.is_training = false;
         self.dropouts().for_each(Dropout::eval);
+        if let Some(ref mut zoneout) = self.zoneout {
+            zoneout.eval();
+        }
     }
 
     /// Clears variational dropout masks; call at the start of every sequence.
@@ -252,8 +268,16 @@ impl GRUCell {
             .candidate_dropout
             .as_mut()
             .and_then(|d| d.sample_mask(hx.raw_dim()));
-        let hy = &update_gate.mapv(|z| 1.0 - z) * hx
+        let h_new = &update_gate.mapv(|z| 1.0 - z) * hx
             + &update_gate * &masked(&new_gate, &candidate_mask);
+        let zoneout_mask = self
+            .zoneout
+            .as_ref()
+            .and_then(|z| z.hidden_mask(hx.raw_dim()));
+        let hy = match zoneout_mask {
+            Some(ref m) => zone(m, &h_new, hx),
+            None => h_new,
+        };
 
         let cache = GRUCellCache {
             input: x,
@@ -267,6 +291,7 @@ impl GRUCell {
             input_dropout_mask: input_mask,
             recurrent_dropout_mask: recurrent_mask,
             candidate_dropout_mask: candidate_mask,
+            zoneout_mask,
         };
         (hy, cache)
     }
@@ -284,6 +309,8 @@ impl GRUCell {
         let r = &cache.reset_gate;
         let n = &cache.new_gate;
 
+        let (dhy, dhx_zoneout) = split_zoneout(dhy, &cache.zoneout_mask);
+        let dhy = &dhy;
         let mask = &cache.candidate_dropout_mask;
         let dz_raw = dhy * &(masked(n, mask) - &cache.hx) * &z.mapv(|v| v * (1.0 - v));
         let dn_raw = masked(&(dhy * z), mask) * &n.mapv(|v| 1.0 - v * v);
@@ -310,7 +337,10 @@ impl GRUCell {
             self.w_ir.t().dot(&dr_raw) + self.w_iz.t().dot(&dz_raw) + self.w_ih.t().dot(&dn_raw);
         let dx = masked(&dx, &cache.input_dropout_mask);
         let dhd = &d_reset_hidden * r + self.w_hr.t().dot(&dr_raw) + self.w_hz.t().dot(&dz_raw);
-        let dhx = dhy * &z.mapv(|v| 1.0 - v) + masked(&dhd, &cache.recurrent_dropout_mask);
+        let mut dhx = dhy * &z.mapv(|v| 1.0 - v) + masked(&dhd, &cache.recurrent_dropout_mask);
+        if let Some(d) = dhx_zoneout {
+            dhx += &d;
+        }
 
         (gradients, dx, dhx)
     }

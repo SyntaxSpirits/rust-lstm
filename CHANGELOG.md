@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   update g_t instead of the state, so the memory itself is never erased.
 - Candidate dropout for GRUs: `with_candidate_dropout` on `GRUCell`, `GRUNetwork` and the
   GRU `LayerDropoutConfig`.
+- Zoneout for GRUs: `with_zoneout(rate)` on `GRUCell`, `GRUNetwork` and the GRU
+  `LayerDropoutConfig`; masks are cached for the backward pass and the expected state is
+  used at evaluation.
 
 ## [0.9.0] - 2026-10-06
 

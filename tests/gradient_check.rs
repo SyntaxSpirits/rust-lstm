@@ -279,6 +279,58 @@ fn gru_network_bptt_matches_finite_differences() {
 }
 
 #[test]
+fn gru_network_with_zoneout_matches_finite_differences() {
+    let mut net = GRUNetwork::new(3, 4, 2).with_zoneout(0.3);
+    net.train();
+    for cell in net.get_cells_mut() {
+        cell.zoneout.as_mut().unwrap().eval();
+    }
+    let xs = sequence(5, 3, 2, 6);
+    let ys = sequence(5, 4, 2, 65);
+    let h0: Vec<Array2<f64>> = (0..2).map(|_| Array2::zeros((4, 2))).collect();
+    let mut run = net.clone();
+    let mut h = h0;
+    let mut caches = Vec::new();
+    let mut d_outputs = Vec::new();
+    for (x, y) in xs.iter().zip(&ys) {
+        let (next, cache) = run.forward_with_cache(x, &h);
+        d_outputs.push(MSELoss.compute_batch_gradient(next.last().unwrap(), y));
+        caches.push(cache);
+        h = next;
+    }
+    let (grads, d_inputs) = net.backward_sequence(&d_outputs, &caches);
+    let loss = |n: &GRUNetwork| gru_loss(n, &xs, &ys);
+    for (l, g) in grads.iter().enumerate() {
+        assert_close(
+            &format!("GRU zoneout layer {l} w_hz"),
+            &net,
+            &loss,
+            &|n| &mut n.get_cells_mut()[l].w_hz,
+            &g.w_hz,
+        );
+        assert_close(
+            &format!("GRU zoneout layer {l} w_hh"),
+            &net,
+            &loss,
+            &|n| &mut n.get_cells_mut()[l].w_hh,
+            &g.w_hh,
+        );
+    }
+    let input_loss = |x: &Array2<f64>| {
+        let mut perturbed = xs.clone();
+        perturbed[1] = x.clone();
+        gru_loss(&net, &perturbed, &ys)
+    };
+    assert_close(
+        "GRU zoneout input",
+        &xs[1],
+        &input_loss,
+        &|x| x,
+        &d_inputs[1],
+    );
+}
+
+#[test]
 fn bilstm_bptt_matches_finite_differences() {
     for mode in [CombineMode::Concat, CombineMode::Sum, CombineMode::Average] {
         let mut net = BiLSTMNetwork::new(3, 4, 2, mode.clone());

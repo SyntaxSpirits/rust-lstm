@@ -380,7 +380,7 @@ cargo run --example model_inspection
 - **Recurrent Dropout**: Applied to hidden states with variational support
 - **Output Dropout**: Applied between stacked layers (the recurrent state itself is not dropped)
 - **Cell-Update Dropout**: Applied to the LSTM candidate update g_t or the GRU candidate state, so memory is never erased (Semeniuta et al., 2016)
-- **Zoneout**: RNN-specific regularization preserving previous states; its expectation is used at evaluation time
+- **Zoneout**: RNN-specific regularization preserving previous states (LSTM cell and hidden state, GRU hidden state); its expectation is used at evaluation time
 
 ### Optimizers
 - **SGD**: Plain stochastic gradient descent
