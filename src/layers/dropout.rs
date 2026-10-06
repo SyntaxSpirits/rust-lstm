@@ -1,6 +1,6 @@
+use crate::random::random_array;
 use ndarray::Array2;
 use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
 
 /// Dropout layer for regularization
 ///
@@ -97,7 +97,7 @@ impl Dropout {
 
     fn generate_mask(&self, shape: ndarray::Dim<[usize; 2]>, keep_prob: f64) -> Array2<f64> {
         let dist = Uniform::new(0.0, 1.0);
-        Array2::random(shape, dist).mapv(|x| if x < keep_prob { 1.0 } else { 0.0 })
+        random_array(shape, dist).mapv(|x| if x < keep_prob { 1.0 } else { 0.0 })
     }
 }
 
@@ -148,7 +148,7 @@ impl Zoneout {
             return Some(Array2::from_elem(shape, rate));
         }
         let dist = Uniform::new(0.0, 1.0);
-        Some(Array2::random(shape, dist).mapv(|x| if x < rate { 1.0 } else { 0.0 }))
+        Some(random_array(shape, dist).mapv(|x| if x < rate { 1.0 } else { 0.0 }))
     }
 
     pub fn apply_cell_zoneout(

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `rust_lstm::seed(u64)`: one seedable generator per thread drives weight
+  initialisation, dropout and zoneout masks and text sampling, so runs are reproducible.
 - Cell-update dropout (Semeniuta et al., 2016): `with_cell_update_dropout` on `LSTMCell`,
   `LSTMNetwork`, `BiLSTMNetwork` and `LayerDropoutConfig` drops units of the candidate
   update g_t instead of the state, so the memory itself is never erased.

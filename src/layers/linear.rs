@@ -1,7 +1,7 @@
 use crate::optimizers::Optimizer;
+use crate::random::random_array;
 use ndarray::Array2;
 use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
 
 /// Holds gradients for linear layer parameters during backpropagation
 #[derive(Clone, Debug)]
@@ -37,7 +37,7 @@ impl LinearLayer {
         let scale = (2.0 / (input_size + output_size) as f64).sqrt();
         let weight_range = scale;
 
-        let weight = Array2::random(
+        let weight = random_array(
             (output_size, input_size),
             Uniform::new(-weight_range, weight_range),
         );

@@ -1,8 +1,8 @@
 use crate::layers::dropout::{zone, Dropout, Zoneout};
+use crate::random::random_array;
 use crate::utils::sigmoid;
 use ndarray::{s, Array2, Axis};
 use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
 
 /// Holds gradients for all LSTM cell parameters during backpropagation
 #[derive(Clone)]
@@ -84,8 +84,8 @@ impl LSTMCell {
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let dist = Uniform::new(-0.1, 0.1);
 
-        let w_ih = Array2::random((4 * hidden_size, input_size), dist);
-        let w_hh = Array2::random((4 * hidden_size, hidden_size), dist);
+        let w_ih = random_array((4 * hidden_size, input_size), dist);
+        let w_hh = random_array((4 * hidden_size, hidden_size), dist);
         let b_ih = Array2::zeros((4 * hidden_size, 1));
         let b_hh = Array2::zeros((4 * hidden_size, 1));
 

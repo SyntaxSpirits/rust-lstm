@@ -1,9 +1,9 @@
 use crate::layers::dropout::{zone, Dropout, Zoneout};
 use crate::layers::lstm_cell::{masked, split_zoneout};
+use crate::random::random_array;
 use crate::utils::sigmoid;
 use ndarray::{Array2, Axis};
 use ndarray_rand::rand_distr::Uniform;
-use ndarray_rand::RandomExt;
 
 /// Holds gradients for all GRU cell parameters during backpropagation
 #[derive(Clone)]
@@ -112,20 +112,20 @@ impl GRUCell {
         let dist = Uniform::new(-0.1, 0.1);
 
         // Reset gate weights
-        let w_ir = Array2::random((hidden_size, input_size), dist);
-        let w_hr = Array2::random((hidden_size, hidden_size), dist);
+        let w_ir = random_array((hidden_size, input_size), dist);
+        let w_hr = random_array((hidden_size, hidden_size), dist);
         let b_ir = Array2::zeros((hidden_size, 1));
         let b_hr = Array2::zeros((hidden_size, 1));
 
         // Update gate weights
-        let w_iz = Array2::random((hidden_size, input_size), dist);
-        let w_hz = Array2::random((hidden_size, hidden_size), dist);
+        let w_iz = random_array((hidden_size, input_size), dist);
+        let w_hz = random_array((hidden_size, hidden_size), dist);
         let b_iz = Array2::zeros((hidden_size, 1));
         let b_hz = Array2::zeros((hidden_size, 1));
 
         // New gate weights
-        let w_ih = Array2::random((hidden_size, input_size), dist);
-        let w_hh = Array2::random((hidden_size, hidden_size), dist);
+        let w_ih = random_array((hidden_size, input_size), dist);
+        let w_hh = random_array((hidden_size, hidden_size), dist);
         let b_ih = Array2::zeros((hidden_size, 1));
         let b_hh = Array2::zeros((hidden_size, 1));
 
