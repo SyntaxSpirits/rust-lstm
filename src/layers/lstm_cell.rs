@@ -57,6 +57,7 @@ pub struct LSTMCellCache {
     pub hy: Array2<f64>,
     pub input_dropout_mask: Option<Array2<f64>>,
     pub recurrent_dropout_mask: Option<Array2<f64>>,
+    pub cell_update_dropout_mask: Option<Array2<f64>>,
     pub cell_zoneout_mask: Option<Array2<f64>>,
     pub hidden_zoneout_mask: Option<Array2<f64>>,
 }
@@ -72,6 +73,8 @@ pub struct LSTMCell {
     pub input_dropout: Option<Dropout>,
     pub recurrent_dropout: Option<Dropout>,
     pub output_dropout: Option<Dropout>,
+    /// Dropout on the candidate update g_t (Semeniuta et al., 2016).
+    pub cell_update_dropout: Option<Dropout>,
     pub zoneout: Option<Zoneout>,
     pub is_training: bool,
 }
@@ -95,6 +98,7 @@ impl LSTMCell {
             input_dropout: None,
             recurrent_dropout: None,
             output_dropout: None,
+            cell_update_dropout: None,
             zoneout: None,
             is_training: true,
         }
@@ -128,17 +132,31 @@ impl LSTMCell {
         self
     }
 
+    /// Drops units of the candidate update g_t before it is added to the cell state,
+    /// so that dropout never erases the memory itself (Semeniuta et al., 2016).
+    pub fn with_cell_update_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
+        self.cell_update_dropout = Some(if variational {
+            Dropout::variational(dropout_rate)
+        } else {
+            Dropout::new(dropout_rate)
+        });
+        self
+    }
+
+    fn dropouts(&mut self) -> impl Iterator<Item = &mut Dropout> {
+        [
+            &mut self.input_dropout,
+            &mut self.recurrent_dropout,
+            &mut self.output_dropout,
+            &mut self.cell_update_dropout,
+        ]
+        .into_iter()
+        .flatten()
+    }
+
     pub fn train(&mut self) {
         self.is_training = true;
-        if let Some(ref mut dropout) = self.input_dropout {
-            dropout.train();
-        }
-        if let Some(ref mut dropout) = self.recurrent_dropout {
-            dropout.train();
-        }
-        if let Some(ref mut dropout) = self.output_dropout {
-            dropout.train();
-        }
+        self.dropouts().for_each(Dropout::train);
         if let Some(ref mut zoneout) = self.zoneout {
             zoneout.train();
         }
@@ -146,15 +164,7 @@ impl LSTMCell {
 
     pub fn eval(&mut self) {
         self.is_training = false;
-        if let Some(ref mut dropout) = self.input_dropout {
-            dropout.eval();
-        }
-        if let Some(ref mut dropout) = self.recurrent_dropout {
-            dropout.eval();
-        }
-        if let Some(ref mut dropout) = self.output_dropout {
-            dropout.eval();
-        }
+        self.dropouts().for_each(Dropout::eval);
         if let Some(ref mut zoneout) = self.zoneout {
             zoneout.eval();
         }
@@ -162,16 +172,7 @@ impl LSTMCell {
 
     /// Clears variational dropout masks; call at the start of every sequence.
     pub fn reset_dropout_masks(&mut self) {
-        for dropout in [
-            &mut self.input_dropout,
-            &mut self.recurrent_dropout,
-            &mut self.output_dropout,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            dropout.reset();
-        }
+        self.dropouts().for_each(Dropout::reset);
     }
 
     /// Samples the dropout mask applied to this cell's output before it is fed to
@@ -220,7 +221,11 @@ impl LSTMCell {
         let cell_gate = gates.slice(s![2 * h..3 * h, ..]).mapv(f64::tanh);
         let output_gate = gates.slice(s![3 * h..4 * h, ..]).mapv(sigmoid);
 
-        let c_new = &forget_gate * cx + &input_gate * &cell_gate;
+        let cell_update_mask = self
+            .cell_update_dropout
+            .as_mut()
+            .and_then(|d| d.sample_mask(cx.raw_dim()));
+        let c_new = &forget_gate * cx + &input_gate * &masked(&cell_gate, &cell_update_mask);
         let (cell_zoneout_mask, hidden_zoneout_mask) = match self.zoneout {
             Some(ref z) => (z.cell_mask(cx.raw_dim()), z.hidden_mask(hx.raw_dim())),
             None => (None, None),
@@ -247,6 +252,7 @@ impl LSTMCell {
             hy: hy.clone(),
             input_dropout_mask: input_mask,
             recurrent_dropout_mask: recurrent_mask,
+            cell_update_dropout_mask: cell_update_mask,
             cell_zoneout_mask,
             hidden_zoneout_mask,
         };
@@ -273,9 +279,12 @@ impl LSTMCell {
         let dc = dcy + &dh_new * &cache.output_gate * &tanh_cy.mapv(|t| 1.0 - t * t);
         let (dc_new, dcx_zoneout) = split_zoneout(&dc, &cache.cell_zoneout_mask);
 
-        let di_raw = &dc_new * &cache.cell_gate * &cache.input_gate.mapv(|i| i * (1.0 - i));
+        let mask = &cache.cell_update_dropout_mask;
+        let g_used = masked(&cache.cell_gate, mask);
+        let di_raw = &dc_new * &g_used * &cache.input_gate.mapv(|i| i * (1.0 - i));
         let df_raw = &dc_new * &cache.cx * &cache.forget_gate.mapv(|f| f * (1.0 - f));
-        let dg_raw = &dc_new * &cache.input_gate * &cache.cell_gate.mapv(|g| 1.0 - g * g);
+        let dg_raw =
+            masked(&(&dc_new * &cache.input_gate), mask) * &cache.cell_gate.mapv(|g| 1.0 - g * g);
 
         let mut dgates = Array2::zeros((4 * h, dhy.ncols()));
         dgates.slice_mut(s![0..h, ..]).assign(&di_raw);

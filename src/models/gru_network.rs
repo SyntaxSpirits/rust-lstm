@@ -19,6 +19,8 @@ pub struct LayerDropoutConfig {
     pub recurrent_dropout_rate: f64,
     pub recurrent_variational: bool,
     pub output_dropout_rate: f64,
+    pub candidate_dropout_rate: f64,
+    pub candidate_variational: bool,
 }
 
 impl Default for LayerDropoutConfig {
@@ -35,6 +37,8 @@ impl LayerDropoutConfig {
             recurrent_dropout_rate: 0.0,
             recurrent_variational: false,
             output_dropout_rate: 0.0,
+            candidate_dropout_rate: 0.0,
+            candidate_variational: false,
         }
     }
 
@@ -52,6 +56,12 @@ impl LayerDropoutConfig {
 
     pub fn with_output_dropout(mut self, rate: f64) -> Self {
         self.output_dropout_rate = rate;
+        self
+    }
+
+    pub fn with_candidate_dropout(mut self, rate: f64, variational: bool) -> Self {
+        self.candidate_dropout_rate = rate;
+        self.candidate_variational = variational;
         self
     }
 }
@@ -112,6 +122,16 @@ impl GRUNetwork {
         self
     }
 
+    /// Dropout on the candidate state of every layer (Semeniuta et al., 2016).
+    pub fn with_candidate_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
+        for cell in &mut self.cells {
+            *cell = cell
+                .clone()
+                .with_candidate_dropout(dropout_rate, variational);
+        }
+        self
+    }
+
     /// Apply layer-specific dropout configuration
     pub fn with_layer_dropout(mut self, configs: Vec<LayerDropoutConfig>) -> Self {
         if configs.len() != self.num_layers {
@@ -128,6 +148,12 @@ impl GRUNetwork {
                 self.cells[i] = self.cells[i].clone().with_recurrent_dropout(
                     config.recurrent_dropout_rate,
                     config.recurrent_variational,
+                );
+            }
+            if config.candidate_dropout_rate > 0.0 {
+                self.cells[i] = self.cells[i].clone().with_candidate_dropout(
+                    config.candidate_dropout_rate,
+                    config.candidate_variational,
                 );
             }
             if config.output_dropout_rate > 0.0 && i < self.num_layers - 1 {

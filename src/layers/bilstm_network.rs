@@ -138,6 +138,19 @@ impl BiLSTMNetwork {
         self
     }
 
+    pub fn with_cell_update_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
+        for cell in self
+            .forward_cells
+            .iter_mut()
+            .chain(self.backward_cells.iter_mut())
+        {
+            *cell = cell
+                .clone()
+                .with_cell_update_dropout(dropout_rate, variational);
+        }
+        self
+    }
+
     pub fn with_zoneout(mut self, cell_zoneout_rate: f64, hidden_zoneout_rate: f64) -> Self {
         for cell in &mut self.forward_cells {
             *cell = cell

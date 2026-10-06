@@ -87,6 +87,16 @@ impl LSTMNetwork {
         self
     }
 
+    /// Dropout on the candidate update of every layer (Semeniuta et al., 2016).
+    pub fn with_cell_update_dropout(mut self, dropout_rate: f64, variational: bool) -> Self {
+        for cell in &mut self.cells {
+            *cell = cell
+                .clone()
+                .with_cell_update_dropout(dropout_rate, variational);
+        }
+        self
+    }
+
     pub fn with_layer_dropout(mut self, layer_configs: Vec<LayerDropoutConfig>) -> Self {
         for (i, config) in layer_configs.into_iter().enumerate() {
             if i < self.cells.len() {
@@ -103,6 +113,9 @@ impl LSTMNetwork {
                 }
                 if let Some((cell_rate, hidden_rate)) = config.zoneout {
                     cell = cell.with_zoneout(cell_rate, hidden_rate);
+                }
+                if let Some((rate, variational)) = config.cell_update_dropout {
+                    cell = cell.with_cell_update_dropout(rate, variational);
                 }
 
                 self.cells[i] = cell;
@@ -364,6 +377,7 @@ pub struct LayerDropoutConfig {
     pub recurrent_dropout: Option<(f64, bool)>, // (rate, variational)
     pub output_dropout: Option<f64>,        // rate
     pub zoneout: Option<(f64, f64)>,        // (cell_rate, hidden_rate)
+    pub cell_update_dropout: Option<(f64, bool)>, // (rate, variational)
 }
 
 impl Default for LayerDropoutConfig {
@@ -379,6 +393,7 @@ impl LayerDropoutConfig {
             recurrent_dropout: None,
             output_dropout: None,
             zoneout: None,
+            cell_update_dropout: None,
         }
     }
 
@@ -399,6 +414,11 @@ impl LayerDropoutConfig {
 
     pub fn with_zoneout(mut self, cell_rate: f64, hidden_rate: f64) -> Self {
         self.zoneout = Some((cell_rate, hidden_rate));
+        self
+    }
+
+    pub fn with_cell_update_dropout(mut self, rate: f64, variational: bool) -> Self {
+        self.cell_update_dropout = Some((rate, variational));
         self
     }
 }
