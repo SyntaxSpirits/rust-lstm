@@ -9,6 +9,14 @@ authors:
     affiliation: "National Aerospace University \"Kharkiv Aviation Institute\""
     orcid: "https://orcid.org/0009-0000-1012-7361"
 version: 0.9.0
+doi: 10.5281/zenodo.23178447
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23178447
+    description: Concept DOI for all versions
+  - type: doi
+    value: 10.5281/zenodo.23178448
+    description: Version 0.9.0
 date-released: 2026-10-06
 license: MIT
 repository-code: "https://github.com/SyntaxSpirits/rust-lstm"
