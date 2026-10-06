@@ -39,6 +39,7 @@ pub mod loss;
 pub mod models;
 pub mod optimizers;
 pub mod persistence;
+pub mod random;
 pub mod schedulers;
 pub mod text;
 pub mod training;
@@ -61,6 +62,7 @@ pub use models::gru_network::{
 pub use models::lstm_network::{LSTMNetwork, LSTMNetworkCache, LSTMState, LayerDropoutConfig};
 pub use optimizers::{Adam, RMSprop, ScheduledOptimizer, SGD};
 pub use persistence::{ModelMetadata, ModelPersistence, PersistenceError, PersistentModel};
+pub use random::seed;
 pub use schedulers::{
     AnnealStrategy, ConstantLR, CosineAnnealingLR, CosineAnnealingWarmRestarts, CyclicalLR,
     CyclicalMode, ExponentialLR, LRScheduleVisualizer, LearningRateScheduler, LinearLR,
