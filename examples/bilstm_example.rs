@@ -102,15 +102,13 @@ fn demo_bilstm_vs_lstm() {
 
     // Unidirectional LSTM
     let mut lstm = LSTMNetwork::new(1, 4, 1);
-    let mut hx = Array2::zeros((4, 1));
-    let mut cx = Array2::zeros((4, 1));
+    let mut state = lstm.zero_state(1);
 
     let mut lstm_outputs = Vec::new();
     for input in &sequence {
-        let (new_hx, new_cx) = lstm.forward(input, &hx, &cx);
+        let (new_hx, next_state) = lstm.forward(input, &state);
         lstm_outputs.push(new_hx.clone());
-        hx = new_hx;
-        cx = new_cx;
+        state = next_state;
     }
 
     // Bidirectional LSTM (with same total parameters approximately)

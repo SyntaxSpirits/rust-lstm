@@ -47,13 +47,12 @@ fn demonstrate_basic_dropout() {
         .with_output_dropout(0.1);
 
     let input = arr2(&[[1.0], [0.5], [-0.2], [0.8]]);
-    let hx = Array2::zeros((hidden_size, 1));
-    let cx = Array2::zeros((hidden_size, 1));
+    let state = network.zero_state(1);
 
     // Test training mode
     network.train();
     println!("Training mode:");
-    let (hy_train, _) = network.forward(&input, &hx, &cx);
+    let (hy_train, _) = network.forward(&input, &state);
     println!("  Output shape: {:?}", hy_train.shape());
     println!(
         "  Sample output values: [{:.4}, {:.4}, {:.4}]",
@@ -65,7 +64,7 @@ fn demonstrate_basic_dropout() {
     // Test evaluation mode
     network.eval();
     println!("Evaluation mode:");
-    let (hy_eval, _) = network.forward(&input, &hx, &cx);
+    let (hy_eval, _) = network.forward(&input, &state);
     println!("  Output shape: {:?}", hy_eval.shape());
     println!(
         "  Sample output values: [{:.4}, {:.4}, {:.4}]",
@@ -99,14 +98,12 @@ fn demonstrate_variational_dropout() {
     network.train();
     println!("Processing sequence with variational dropout:");
 
-    let mut hx = Array2::zeros((hidden_size, 1));
-    let mut cx = Array2::zeros((hidden_size, 1));
+    let mut state = network.zero_state(1);
 
     for (i, input) in sequence.iter().enumerate() {
-        let (new_hx, new_cx) = network.forward(input, &hx, &cx);
+        let (new_hx, next_state) = network.forward(input, &state);
         println!("  Step {}: Output sum = {:.4}", i, new_hx.sum());
-        hx = new_hx;
-        cx = new_cx;
+        state = next_state;
     }
 
     println!();
@@ -136,11 +133,10 @@ fn demonstrate_layer_specific_dropout() {
         LSTMNetwork::new(input_size, hidden_size, num_layers).with_layer_dropout(layer_configs);
 
     let input = arr2(&[[0.5], [1.0], [-0.3]]);
-    let hx = Array2::zeros((hidden_size, 1));
-    let cx = Array2::zeros((hidden_size, 1));
+    let state = network.zero_state(1);
 
     network.train();
-    let (hy, _) = network.forward(&input, &hx, &cx);
+    let (hy, _) = network.forward(&input, &state);
 
     println!("Network with layer-specific dropout:");
     println!(
@@ -173,19 +169,17 @@ fn demonstrate_zoneout() {
     network.train();
     println!("Sequence processing with zoneout:");
 
-    let mut hx = Array2::zeros((hidden_size, 1));
-    let mut cx = Array2::zeros((hidden_size, 1));
+    let mut state = network.zero_state(1);
 
     for (i, input) in sequence.iter().enumerate() {
-        let (new_hx, new_cx) = network.forward(input, &hx, &cx);
+        let (new_hx, next_state) = network.forward(input, &state);
         println!(
             "  Step {}: Hidden state norm = {:.4}, Cell state norm = {:.4}",
             i,
             (new_hx.mapv(|x| x * x).sum()).sqrt(),
-            (new_cx.mapv(|x| x * x).sum()).sqrt()
+            (next_state.c[0].mapv(|x| x * x).sum()).sqrt()
         );
-        hx = new_hx;
-        cx = new_cx;
+        state = next_state;
     }
 
     println!();

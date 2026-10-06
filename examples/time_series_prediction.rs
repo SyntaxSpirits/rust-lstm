@@ -6,7 +6,7 @@
 #![allow(clippy::absurd_extreme_comparisons)]
 #![allow(unused_comparisons)]
 
-use ndarray::{arr2, Array2};
+use ndarray::arr2;
 use rust_lstm::models::lstm_network::LSTMNetwork;
 
 fn main() {
@@ -21,18 +21,16 @@ fn main() {
     // Create a simple sine wave sequence
     let sequence_len = 10;
     let mut sequence = Vec::new();
-    let mut hx = Array2::zeros((hidden_size, 1));
-    let mut cx = Array2::zeros((hidden_size, 1));
+    let mut state = network.zero_state(1);
 
     for i in 0..sequence_len {
         let t = i as f64 * 0.1;
         let input = arr2(&[[(t).sin()]]);
 
-        let (new_hx, new_cx) = network.forward(&input, &hx, &cx);
+        let (new_hx, next_state) = network.forward(&input, &state);
 
         sequence.push((input, new_hx.clone()));
-        hx = new_hx;
-        cx = new_cx;
+        state = next_state;
     }
 
     println!("Generated {} time steps", sequence.len());

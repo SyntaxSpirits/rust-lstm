@@ -1,4 +1,5 @@
 use crate::layers::gru_cell::{GRUCell, GRUCellCache, GRUCellGradients};
+use crate::layers::lstm_cell::masked;
 use crate::optimizers::Optimizer;
 use ndarray::Array2;
 
@@ -6,6 +7,8 @@ use ndarray::Array2;
 #[derive(Clone)]
 pub struct GRUNetworkCache {
     pub caches: Vec<GRUCellCache>,
+    /// Inverted-dropout masks applied between layer `i` and layer `i + 1`.
+    pub output_dropout_masks: Vec<Option<Array2<f64>>>,
 }
 
 /// Configuration for layer-specific dropout settings
@@ -150,79 +153,117 @@ impl GRUNetwork {
         }
     }
 
-    /// Forward pass for a single time step
+    /// Clears variational dropout masks so that the next sequence samples new ones.
+    pub fn reset_dropout_masks(&mut self) {
+        for cell in &mut self.cells {
+            cell.reset_dropout_masks();
+        }
+    }
+
+    /// Forward pass for a single time step; returns the new hidden state of every layer.
     pub fn forward(&mut self, input: &Array2<f64>, hx: &[Array2<f64>]) -> Vec<Array2<f64>> {
+        self.forward_with_cache(input, hx).0
+    }
+
+    /// One time step that also returns the values needed by `backward_sequence`.
+    pub fn forward_with_cache(
+        &mut self,
+        input: &Array2<f64>,
+        hx: &[Array2<f64>],
+    ) -> (Vec<Array2<f64>>, GRUNetworkCache) {
         if hx.len() != self.num_layers {
             panic!("Number of hidden states must match number of layers");
         }
 
+        let last = self.num_layers - 1;
         let mut layer_input = input.clone();
-        let mut outputs = Vec::new();
-
+        let mut states = Vec::with_capacity(self.num_layers);
+        let mut caches = Vec::with_capacity(self.num_layers);
+        let mut output_dropout_masks = Vec::with_capacity(self.num_layers);
         for (i, cell) in self.cells.iter_mut().enumerate() {
-            let hy = cell.forward(&layer_input, &hx[i]);
-            outputs.push(hy.clone());
-            layer_input = hy;
+            let (hy, cache) = cell.forward_with_cache(&layer_input, &hx[i]);
+            let mask = if i < last {
+                cell.output_dropout_mask(hy.raw_dim())
+            } else {
+                None
+            };
+            layer_input = masked(&hy, &mask);
+            states.push(hy);
+            caches.push(cache);
+            output_dropout_masks.push(mask);
         }
-
-        outputs
+        let cache = GRUNetworkCache {
+            caches,
+            output_dropout_masks,
+        };
+        (states, cache)
     }
 
-    /// Forward pass for a sequence with caching for training
+    /// Forward pass for a sequence with caching for training.
+    ///
+    /// Returns, for every step, the top-layer output and the states of all layers.
     pub fn forward_sequence_with_cache(
         &mut self,
         sequence: &[Array2<f64>],
     ) -> (Vec<(Array2<f64>, Vec<Array2<f64>>)>, Vec<GRUNetworkCache>) {
-        let mut all_outputs = Vec::new();
-        let mut all_caches = Vec::new();
-
-        // Initialize hidden states for all layers
+        let batch_size = sequence.first().map_or(1, |x| x.ncols());
         let mut hidden_states: Vec<Array2<f64>> = (0..self.num_layers)
-            .map(|_| Array2::zeros((self.hidden_size, 1)))
+            .map(|_| Array2::zeros((self.hidden_size, batch_size)))
             .collect();
+        self.reset_dropout_masks();
 
+        let mut all_outputs = Vec::with_capacity(sequence.len());
+        let mut all_caches = Vec::with_capacity(sequence.len());
         for input in sequence {
-            let mut layer_input = input.clone();
-            let mut step_outputs = Vec::new();
-            let mut step_caches = Vec::new();
-
-            for (i, cell) in self.cells.iter_mut().enumerate() {
-                let (hy, cache) = cell.forward_with_cache(&layer_input, &hidden_states[i]);
-
-                hidden_states[i] = hy.clone();
-                step_outputs.push(hy.clone());
-                step_caches.push(cache);
-                layer_input = hy;
-            }
-
-            // The final output is from the last layer
-            let final_output = step_outputs.last().unwrap().clone();
-            all_outputs.push((final_output, step_outputs));
-            all_caches.push(GRUNetworkCache {
-                caches: step_caches,
-            });
+            let (states, cache) = self.forward_with_cache(input, &hidden_states);
+            all_outputs.push((states[self.num_layers - 1].clone(), states.clone()));
+            all_caches.push(cache);
+            hidden_states = states;
         }
-
         (all_outputs, all_caches)
     }
 
-    /// Backward pass for training
-    pub fn backward(
+    /// Backpropagation through time over a sequence processed by
+    /// `forward_sequence_with_cache`.
+    ///
+    /// `d_outputs[t]` is the gradient of the loss with respect to the top-layer
+    /// output at step `t`. Returns the parameter gradients of every layer and the
+    /// gradient with respect to every input.
+    pub fn backward_sequence(
         &self,
-        dhy: &Array2<f64>,
-        cache: &GRUNetworkCache,
-    ) -> (Vec<GRUCellGradients>, Array2<f64>) {
-        let mut gradients = Vec::new();
-        let mut dhx = dhy.clone();
+        d_outputs: &[Array2<f64>],
+        caches: &[GRUNetworkCache],
+    ) -> (Vec<GRUCellGradients>, Vec<Array2<f64>>) {
+        assert_eq!(
+            d_outputs.len(),
+            caches.len(),
+            "one output gradient per time step"
+        );
+        let mut gradients = self.zero_gradients();
+        let mut d_inputs = vec![Array2::zeros((0, 0)); caches.len()];
+        let batch_size = d_outputs.first().map_or(1, |d| d.ncols());
+        let mut dh_next: Vec<Array2<f64>> = (0..self.num_layers)
+            .map(|_| Array2::zeros((self.hidden_size, batch_size)))
+            .collect();
 
-        // Backward through layers in reverse order
-        for (i, cell) in self.cells.iter().enumerate().rev() {
-            let (cell_gradients, _, dhx_prev) = cell.backward(&dhx, &cache.caches[i]);
-            gradients.insert(0, cell_gradients);
-            dhx = dhx_prev;
+        let last = self.num_layers - 1;
+        for t in (0..caches.len()).rev() {
+            let mut d_above = d_outputs[t].clone();
+            for l in (0..self.num_layers).rev() {
+                let d_out = if l < last {
+                    masked(&d_above, &caches[t].output_dropout_masks[l])
+                } else {
+                    d_above
+                };
+                let dh = &d_out + &dh_next[l];
+                let (g, dx, dhx) = self.cells[l].backward(&dh, &caches[t].caches[l]);
+                gradients[l].accumulate(&g);
+                dh_next[l] = dhx;
+                d_above = dx;
+            }
+            d_inputs[t] = d_above;
         }
-
-        (gradients, dhx)
+        (gradients, d_inputs)
     }
 
     /// Update parameters using optimizer

@@ -1,6 +1,7 @@
 use crate::layers::dropout::Dropout;
+use crate::layers::lstm_cell::masked;
 use crate::utils::sigmoid;
-use ndarray::Array2;
+use ndarray::{Array2, Axis};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
@@ -21,11 +22,48 @@ pub struct GRUCellGradients {
     pub b_hh: Array2<f64>,
 }
 
-/// Caches intermediate values during forward pass for efficient backward computation
+impl GRUCellGradients {
+    pub fn accumulate(&mut self, other: &GRUCellGradients) {
+        for (a, b) in self.matrices_mut().into_iter().zip(other.matrices()) {
+            *a += b;
+        }
+    }
+
+    fn matrices(&self) -> [&Array2<f64>; 12] {
+        [
+            &self.w_ir, &self.w_hr, &self.b_ir, &self.b_hr, &self.w_iz, &self.w_hz, &self.b_iz,
+            &self.b_hz, &self.w_ih, &self.w_hh, &self.b_ih, &self.b_hh,
+        ]
+    }
+
+    fn matrices_mut(&mut self) -> [&mut Array2<f64>; 12] {
+        [
+            &mut self.w_ir,
+            &mut self.w_hr,
+            &mut self.b_ir,
+            &mut self.b_hr,
+            &mut self.w_iz,
+            &mut self.w_hz,
+            &mut self.b_iz,
+            &mut self.b_hz,
+            &mut self.w_ih,
+            &mut self.w_hh,
+            &mut self.b_ih,
+            &mut self.b_hh,
+        ]
+    }
+}
+
+/// Values saved by the forward pass and consumed by `backward`.
+///
+/// `input` and `hx_dropped` are the operands of the input and recurrent weight
+/// matrices after dropout; `hx` is the undropped previous state that is carried
+/// through the update gate.
 #[derive(Clone)]
 pub struct GRUCellCache {
     pub input: Array2<f64>,
     pub hx: Array2<f64>,
+    pub hx_dropped: Array2<f64>,
     pub reset_gate: Array2<f64>,
     pub update_gate: Array2<f64>,
     pub new_gate: Array2<f64>,
@@ -33,7 +71,6 @@ pub struct GRUCellCache {
     pub hy: Array2<f64>,
     pub input_dropout_mask: Option<Array2<f64>>,
     pub recurrent_dropout_mask: Option<Array2<f64>>,
-    pub output_dropout_mask: Option<Array2<f64>>,
 }
 
 /// GRU cell with trainable parameters and dropout support
@@ -157,186 +194,116 @@ impl GRUCell {
         }
     }
 
+    /// Clears variational dropout masks; call at the start of every sequence.
+    pub fn reset_dropout_masks(&mut self) {
+        for dropout in [
+            &mut self.input_dropout,
+            &mut self.recurrent_dropout,
+            &mut self.output_dropout,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            dropout.reset();
+        }
+    }
+
+    /// Samples the dropout mask applied to this cell's output before it is fed to
+    /// the next layer. The recurrent state itself is never dropped.
+    pub fn output_dropout_mask(&mut self, shape: ndarray::Dim<[usize; 2]>) -> Option<Array2<f64>> {
+        self.output_dropout
+            .as_mut()
+            .and_then(|dropout| dropout.sample_mask(shape))
+    }
+
     pub fn forward(&mut self, input: &Array2<f64>, hx: &Array2<f64>) -> Array2<f64> {
         let (hy, _) = self.forward_with_cache(input, hx);
         hy
     }
 
+    /// One time step for a batch of column vectors (Cho et al., 2014):
+    ///
+    /// r = σ(W_ir x + b_ir + W_hr h + b_hr), z = σ(W_iz x + b_iz + W_hz h + b_hz),
+    /// n = tanh(W_ih x + b_ih + W_hh (r ⊙ h) + b_hh), h' = (1 − z) ⊙ h + z ⊙ n.
     pub fn forward_with_cache(
         &mut self,
         input: &Array2<f64>,
         hx: &Array2<f64>,
     ) -> (Array2<f64>, GRUCellCache) {
-        // Apply input dropout
-        let (input_dropped, input_mask) = if let Some(ref mut dropout) = self.input_dropout {
-            let dropped = dropout.forward(input);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (input.clone(), None)
-        };
+        let input_mask = self
+            .input_dropout
+            .as_mut()
+            .and_then(|d| d.sample_mask(input.raw_dim()));
+        let recurrent_mask = self
+            .recurrent_dropout
+            .as_mut()
+            .and_then(|d| d.sample_mask(hx.raw_dim()));
+        let x = masked(input, &input_mask);
+        let hd = masked(hx, &recurrent_mask);
 
-        // Apply recurrent dropout to hidden state
-        let (hx_dropped, recurrent_mask) = if let Some(ref mut dropout) = self.recurrent_dropout {
-            let dropped = dropout.forward(hx);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hx.clone(), None)
-        };
-
-        // Reset gate: r_t = σ(W_ir * x_t + b_ir + W_hr * h_{t-1} + b_hr)
-        let reset_gate = (&self.w_ir.dot(&input_dropped)
-            + &self.b_ir
-            + &self.w_hr.dot(&hx_dropped)
-            + &self.b_hr)
-            .map(|&x| sigmoid(x));
-
-        // Update gate: z_t = σ(W_iz * x_t + b_iz + W_hz * h_{t-1} + b_hz)
-        let update_gate = (&self.w_iz.dot(&input_dropped)
-            + &self.b_iz
-            + &self.w_hz.dot(&hx_dropped)
-            + &self.b_hz)
-            .map(|&x| sigmoid(x));
-
-        // Reset hidden state: reset_hidden = r_t ⊙ h_{t-1}
-        let reset_hidden = &reset_gate * &hx_dropped;
-
-        // New gate: h_tilde_t = tanh(W_ih * x_t + b_ih + W_hh * reset_hidden + b_hh)
-        let new_gate = (&self.w_ih.dot(&input_dropped)
-            + &self.b_ih
-            + &self.w_hh.dot(&reset_hidden)
-            + &self.b_hh)
-            .map(|&x| x.tanh());
-
-        // Output: h_t = (1 - z_t) ⊙ h_{t-1} + z_t ⊙ h_tilde_t
-        let hy = &update_gate.map(|&x| 1.0 - x) * &hx_dropped + &update_gate * &new_gate;
-
-        // Apply output dropout
-        let (hy_final, output_mask) = if let Some(ref mut dropout) = self.output_dropout {
-            let dropped = dropout.forward(&hy);
-            let mask = dropout.get_last_mask().cloned();
-            (dropped, mask)
-        } else {
-            (hy, None)
-        };
+        let reset_gate =
+            (self.w_ir.dot(&x) + &self.b_ir + self.w_hr.dot(&hd) + &self.b_hr).mapv(sigmoid);
+        let update_gate =
+            (self.w_iz.dot(&x) + &self.b_iz + self.w_hz.dot(&hd) + &self.b_hz).mapv(sigmoid);
+        let reset_hidden = &reset_gate * &hd;
+        let new_gate = (self.w_ih.dot(&x) + &self.b_ih + self.w_hh.dot(&reset_hidden) + &self.b_hh)
+            .mapv(f64::tanh);
+        let hy = &update_gate.mapv(|z| 1.0 - z) * hx + &update_gate * &new_gate;
 
         let cache = GRUCellCache {
-            input: input.clone(),
+            input: x,
             hx: hx.clone(),
-            reset_gate: reset_gate.clone(),
-            update_gate: update_gate.clone(),
-            new_gate: new_gate.clone(),
+            hx_dropped: hd,
+            reset_gate,
+            update_gate,
+            new_gate,
             reset_hidden,
-            hy: hy_final.clone(),
+            hy: hy.clone(),
             input_dropout_mask: input_mask,
             recurrent_dropout_mask: recurrent_mask,
-            output_dropout_mask: output_mask,
         };
-
-        (hy_final, cache)
+        (hy, cache)
     }
 
-    /// Backward pass implementing GRU gradient computation with dropout
+    /// Backward pass for one time step.
     ///
-    /// Returns (parameter_gradients, input_gradient, hidden_gradient)
+    /// Returns the parameter gradients (summed over the batch) and the gradients with
+    /// respect to `input` and `hx`.
     pub fn backward(
         &self,
         dhy: &Array2<f64>,
         cache: &GRUCellCache,
     ) -> (GRUCellGradients, Array2<f64>, Array2<f64>) {
-        // Apply output dropout backward pass using saved mask
-        let dhy_dropped = if let Some(ref mask) = cache.output_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.output_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dhy * mask / keep_prob
-        } else {
-            dhy.clone()
-        };
+        let z = &cache.update_gate;
+        let r = &cache.reset_gate;
+        let n = &cache.new_gate;
 
-        // Gradients for output computation: h_t = (1 - z_t) ⊙ h_{t-1} + z_t ⊙ h_tilde_t
-        let d_update_gate = &dhy_dropped * (&cache.new_gate - &cache.hx);
-        let d_new_gate = &dhy_dropped * &cache.update_gate;
-        let dhx_from_output = &dhy_dropped * cache.update_gate.map(|&x| 1.0 - x);
+        let dz_raw = dhy * &(n - &cache.hx) * &z.mapv(|v| v * (1.0 - v));
+        let dn_raw = dhy * z * &n.mapv(|v| 1.0 - v * v);
+        let d_reset_hidden = self.w_hh.t().dot(&dn_raw);
+        let dr_raw = &d_reset_hidden * &cache.hx_dropped * &r.mapv(|v| v * (1.0 - v));
 
-        // Gradients for new gate: h_tilde_t = tanh(W_ih * x_t + b_ih + W_hh * reset_hidden + b_hh)
-        let d_new_gate_raw = &d_new_gate * cache.new_gate.map(|&x| 1.0 - x.powi(2));
-
-        // Gradients for reset hidden: reset_hidden = r_t ⊙ h_{t-1}
-        let d_reset_hidden = self.w_hh.t().dot(&d_new_gate_raw);
-        let d_reset_gate = &d_reset_hidden * &cache.hx;
-        let dhx_from_reset = &d_reset_hidden * &cache.reset_gate;
-
-        // Gradients for reset gate: r_t = σ(W_ir * x_t + b_ir + W_hr * h_{t-1} + b_hr)
-        let d_reset_gate_raw =
-            &d_reset_gate * &cache.reset_gate * cache.reset_gate.map(|&x| 1.0 - x);
-
-        // Gradients for update gate: z_t = σ(W_iz * x_t + b_iz + W_hz * h_{t-1} + b_hz)
-        let d_update_gate_raw =
-            &d_update_gate * &cache.update_gate * cache.update_gate.map(|&x| 1.0 - x);
-
-        // Parameter gradients
-        let dw_ir = d_reset_gate_raw.dot(&cache.input.t());
-        let dw_hr = d_reset_gate_raw.dot(&cache.hx.t());
-        let db_ir = d_reset_gate_raw.clone();
-        let db_hr = d_reset_gate_raw.clone();
-
-        let dw_iz = d_update_gate_raw.dot(&cache.input.t());
-        let dw_hz = d_update_gate_raw.dot(&cache.hx.t());
-        let db_iz = d_update_gate_raw.clone();
-        let db_hz = d_update_gate_raw.clone();
-
-        let dw_ih = d_new_gate_raw.dot(&cache.input.t());
-        let dw_hh = d_new_gate_raw.dot(&cache.reset_hidden.t());
-        let db_ih = d_new_gate_raw.clone();
-        let db_hh = d_new_gate_raw.clone();
-
+        let sum = |m: &Array2<f64>| m.sum_axis(Axis(1)).insert_axis(Axis(1));
         let gradients = GRUCellGradients {
-            w_ir: dw_ir,
-            w_hr: dw_hr,
-            b_ir: db_ir,
-            b_hr: db_hr,
-            w_iz: dw_iz,
-            w_hz: dw_hz,
-            b_iz: db_iz,
-            b_hz: db_hz,
-            w_ih: dw_ih,
-            w_hh: dw_hh,
-            b_ih: db_ih,
-            b_hh: db_hh,
+            w_ir: dr_raw.dot(&cache.input.t()),
+            w_hr: dr_raw.dot(&cache.hx_dropped.t()),
+            b_ir: sum(&dr_raw),
+            b_hr: sum(&dr_raw),
+            w_iz: dz_raw.dot(&cache.input.t()),
+            w_hz: dz_raw.dot(&cache.hx_dropped.t()),
+            b_iz: sum(&dz_raw),
+            b_hz: sum(&dz_raw),
+            w_ih: dn_raw.dot(&cache.input.t()),
+            w_hh: dn_raw.dot(&cache.reset_hidden.t()),
+            b_ih: sum(&dn_raw),
+            b_hh: sum(&dn_raw),
         };
 
-        // Input and hidden gradients
-        let mut dx = self.w_ir.t().dot(&d_reset_gate_raw)
-            + self.w_iz.t().dot(&d_update_gate_raw)
-            + self.w_ih.t().dot(&d_new_gate_raw);
-
-        let mut dhx = dhx_from_output
-            + dhx_from_reset
-            + self.w_hr.t().dot(&d_reset_gate_raw)
-            + self.w_hz.t().dot(&d_update_gate_raw);
-
-        // Apply dropout gradients
-        if let Some(ref mask) = cache.input_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.input_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dx = dx * mask / keep_prob;
-        }
-
-        if let Some(ref mask) = cache.recurrent_dropout_mask {
-            let keep_prob = if let Some(ref dropout) = self.recurrent_dropout {
-                1.0 - dropout.dropout_rate
-            } else {
-                1.0
-            };
-            dhx = dhx * mask / keep_prob;
-        }
+        let dx =
+            self.w_ir.t().dot(&dr_raw) + self.w_iz.t().dot(&dz_raw) + self.w_ih.t().dot(&dn_raw);
+        let dx = masked(&dx, &cache.input_dropout_mask);
+        let dhd = &d_reset_hidden * r + self.w_hr.t().dot(&dr_raw) + self.w_hz.t().dot(&dz_raw);
+        let dhx = dhy * &z.mapv(|v| 1.0 - v) + masked(&dhd, &cache.recurrent_dropout_mask);
 
         (gradients, dx, dhx)
     }

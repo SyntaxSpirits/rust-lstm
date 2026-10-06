@@ -37,11 +37,10 @@ fn test_basic_forward_pass_example() {
     let input = Array2::from_shape_vec((input_size, 1), vec![0.5, 0.1, -0.3]).unwrap();
 
     // Initialize the hidden state and cell state
-    let hx = Array2::zeros((hidden_size, 1));
-    let cx = Array2::zeros((hidden_size, 1));
+    let state = network.zero_state(1);
 
     // Perform a forward pass
-    let (output, _) = network.forward(&input, &hx, &cx);
+    let (output, _) = network.forward(&input, &state);
 
     // Verify output shape
     assert_eq!(output.shape(), &[hidden_size, 1]);
@@ -80,11 +79,10 @@ fn test_dropout_regularization_example() {
 
     // Test with sample input
     let input = Array2::zeros((input_size, 1));
-    let hx = Array2::zeros((hidden_size, 1));
-    let cx = Array2::zeros((hidden_size, 1));
+    let state = network.zero_state(1);
 
-    let (output1, _) = network.forward(&input, &hx, &cx);
-    let (output2, _) = custom_network.forward(&input, &hx, &cx);
+    let (output1, _) = network.forward(&input, &state);
+    let (output2, _) = custom_network.forward(&input, &state);
 
     assert_eq!(output1.shape(), &[hidden_size, 1]);
     assert_eq!(output2.shape(), &[hidden_size, 1]);

@@ -165,33 +165,15 @@ fn simple_training_example() {
             // Forward pass
             let (outputs, caches) = gru.forward_sequence_with_cache(inputs);
 
-            // Compute loss
             let mut sequence_loss = 0.0;
-            let mut gradients_accum = gru.zero_gradients();
-
-            for (step, ((output, _), target)) in outputs.iter().zip(targets.iter()).enumerate() {
-                let step_loss = loss_fn.compute_loss(output, target);
-                sequence_loss += step_loss;
-
-                let dloss = loss_fn.compute_gradient(output, target);
-                let (step_gradients, _) = gru.backward(&dloss, &caches[step]);
-
-                // Accumulate gradients
-                for (acc_grad, step_grad) in gradients_accum.iter_mut().zip(step_gradients.iter()) {
-                    acc_grad.w_ir += &step_grad.w_ir;
-                    acc_grad.w_hr += &step_grad.w_hr;
-                    acc_grad.b_ir += &step_grad.b_ir;
-                    acc_grad.b_hr += &step_grad.b_hr;
-                    acc_grad.w_iz += &step_grad.w_iz;
-                    acc_grad.w_hz += &step_grad.w_hz;
-                    acc_grad.b_iz += &step_grad.b_iz;
-                    acc_grad.b_hz += &step_grad.b_hz;
-                    acc_grad.w_ih += &step_grad.w_ih;
-                    acc_grad.w_hh += &step_grad.w_hh;
-                    acc_grad.b_ih += &step_grad.b_ih;
-                    acc_grad.b_hh += &step_grad.b_hh;
-                }
+            let mut d_outputs = Vec::new();
+            for ((output, _), target) in outputs.iter().zip(targets.iter()) {
+                sequence_loss += loss_fn.compute_loss(output, target);
+                d_outputs.push(loss_fn.compute_gradient(output, target));
             }
+
+            // Backpropagation through time
+            let (gradients_accum, _) = gru.backward_sequence(&d_outputs, &caches);
 
             // Update parameters
             gru.update_parameters(&gradients_accum, &mut optimizer);

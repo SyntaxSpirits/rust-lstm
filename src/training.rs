@@ -1,10 +1,47 @@
+use crate::layers::lstm_cell::LSTMCellGradients;
 use crate::loss::{LossFunction, MSELoss};
-use crate::models::lstm_network::LSTMNetwork;
+use crate::models::lstm_network::{pad_batch, LSTMNetwork};
 use crate::optimizers::{Optimizer, ScheduledOptimizer, SGD};
 use crate::persistence::SerializableLSTMNetwork;
 use crate::schedulers::LearningRateScheduler;
 use ndarray::Array2;
 use std::time::Instant;
+
+/// Loss summed over the time steps of one sequence and its gradients obtained by
+/// backpropagation through time.
+pub fn sequence_gradients<L: LossFunction>(
+    network: &mut LSTMNetwork,
+    loss_function: &L,
+    inputs: &[Array2<f64>],
+    targets: &[Array2<f64>],
+) -> (f64, Vec<LSTMCellGradients>) {
+    let (outputs, caches) = network.forward_sequence_with_cache(inputs);
+    let mut total_loss = 0.0;
+    let d_outputs: Vec<Array2<f64>> = outputs
+        .iter()
+        .zip(targets)
+        .map(|((output, _), target)| {
+            total_loss += loss_function.compute_loss(output, target);
+            loss_function.compute_gradient(output, target)
+        })
+        .collect();
+    let (gradients, _) = network.backward_sequence(&d_outputs, &caches);
+    (total_loss, gradients)
+}
+
+/// Rescales all gradients together so that their joint L2 norm is at most `max_norm`.
+pub fn clip_global_norm(gradients: &mut [LSTMCellGradients], max_norm: f64) {
+    let norm = gradients
+        .iter()
+        .map(LSTMCellGradients::squared_norm)
+        .sum::<f64>()
+        .sqrt();
+    if norm > max_norm {
+        for g in gradients.iter_mut() {
+            g.scale(max_norm / norm);
+        }
+    }
+}
 
 /// Configuration for training hyperparameters
 pub struct TrainingConfig {
@@ -194,30 +231,11 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
 
         self.network.train();
 
-        let (outputs, caches) = self.network.forward_sequence_with_cache(inputs);
-
-        let mut total_loss = 0.0;
-        let mut total_gradients = self.network.zero_gradients();
-
-        for (i, ((output, _), target)) in outputs.iter().zip(targets.iter()).enumerate().rev() {
-            let loss = self.loss_function.compute_loss(output, target);
-            total_loss += loss;
-
-            let dhy = self.loss_function.compute_gradient(output, target);
-            let dcy = Array2::zeros(output.raw_dim());
-
-            let (step_gradients, _) = self.network.backward(&dhy, &dcy, &caches[i]);
-
-            for (total_grad, step_grad) in total_gradients.iter_mut().zip(step_gradients.iter()) {
-                total_grad.w_ih = &total_grad.w_ih + &step_grad.w_ih;
-                total_grad.w_hh = &total_grad.w_hh + &step_grad.w_hh;
-                total_grad.b_ih = &total_grad.b_ih + &step_grad.b_ih;
-                total_grad.b_hh = &total_grad.b_hh + &step_grad.b_hh;
-            }
-        }
+        let (total_loss, mut total_gradients) =
+            sequence_gradients(&mut self.network, &self.loss_function, inputs, targets);
 
         if let Some(clip_value) = self.config.clip_gradient {
-            self.clip_gradients(&mut total_gradients, clip_value);
+            clip_global_norm(&mut total_gradients, clip_value);
         }
 
         self.network
@@ -357,28 +375,6 @@ impl<L: LossFunction, O: Optimizer> LSTMTrainer<L, O> {
         outputs.into_iter().map(|(output, _)| output).collect()
     }
 
-    /// Clip gradients by global norm to prevent exploding gradients
-    fn clip_gradients(
-        &self,
-        gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients],
-        max_norm: f64,
-    ) {
-        for gradient in gradients.iter_mut() {
-            self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
-            self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
-            self.clip_gradient_matrix(&mut gradient.b_ih, max_norm);
-            self.clip_gradient_matrix(&mut gradient.b_hh, max_norm);
-        }
-    }
-
-    fn clip_gradient_matrix(&self, matrix: &mut Array2<f64>, max_norm: f64) {
-        let norm = (&*matrix * &*matrix).sum().sqrt();
-        if norm > max_norm {
-            let scale = max_norm / norm;
-            *matrix = matrix.map(|x| x * scale);
-        }
-    }
-
     pub fn get_latest_metrics(&self) -> Option<&TrainingMetrics> {
         self.metrics_history.last()
     }
@@ -441,30 +437,11 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
 
         self.network.train();
 
-        let (outputs, caches) = self.network.forward_sequence_with_cache(inputs);
-
-        let mut total_loss = 0.0;
-        let mut total_gradients = self.network.zero_gradients();
-
-        for (i, ((output, _), target)) in outputs.iter().zip(targets.iter()).enumerate().rev() {
-            let loss = self.loss_function.compute_loss(output, target);
-            total_loss += loss;
-
-            let dhy = self.loss_function.compute_gradient(output, target);
-            let dcy = Array2::zeros(output.raw_dim());
-
-            let (step_gradients, _) = self.network.backward(&dhy, &dcy, &caches[i]);
-
-            for (total_grad, step_grad) in total_gradients.iter_mut().zip(step_gradients.iter()) {
-                total_grad.w_ih = &total_grad.w_ih + &step_grad.w_ih;
-                total_grad.w_hh = &total_grad.w_hh + &step_grad.w_hh;
-                total_grad.b_ih = &total_grad.b_ih + &step_grad.b_ih;
-                total_grad.b_hh = &total_grad.b_hh + &step_grad.b_hh;
-            }
-        }
+        let (total_loss, mut total_gradients) =
+            sequence_gradients(&mut self.network, &self.loss_function, inputs, targets);
 
         if let Some(clip_value) = self.config.clip_gradient {
-            self.clip_gradients(&mut total_gradients, clip_value);
+            clip_global_norm(&mut total_gradients, clip_value);
         }
 
         self.network
@@ -624,28 +601,6 @@ impl<L: LossFunction, O: Optimizer, S: LearningRateScheduler> ScheduledLSTMTrain
         outputs.into_iter().map(|(output, _)| output).collect()
     }
 
-    /// Clip gradients by global norm to prevent exploding gradients
-    fn clip_gradients(
-        &self,
-        gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients],
-        max_norm: f64,
-    ) {
-        for gradient in gradients.iter_mut() {
-            self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
-            self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
-            self.clip_gradient_matrix(&mut gradient.b_ih, max_norm);
-            self.clip_gradient_matrix(&mut gradient.b_hh, max_norm);
-        }
-    }
-
-    fn clip_gradient_matrix(&self, matrix: &mut Array2<f64>, max_norm: f64) {
-        let norm = (&*matrix * &*matrix).sum().sqrt();
-        if norm > max_norm {
-            let scale = max_norm / norm;
-            *matrix = matrix.map(|x| x * scale);
-        }
-    }
-
     pub fn get_latest_metrics(&self) -> Option<&TrainingMetrics> {
         self.metrics_history.last()
     }
@@ -715,8 +670,8 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
     /// Train on a batch of sequences using batch processing
     ///
     /// # Arguments
-    /// * `batch_inputs` - Vector of input sequences, each sequence is Vec<Array2<f64>>
-    /// * `batch_targets` - Vector of target sequences, each sequence is Vec<Array2<f64>>
+    /// * `batch_inputs` - Vector of input sequences, each sequence is `Vec<Array2<f64>>`
+    /// * `batch_targets` - Vector of target sequences, each sequence is `Vec<Array2<f64>>`
     ///
     /// # Returns
     /// * Average loss across the batch
@@ -737,120 +692,40 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
 
         self.network.train();
 
-        // Find maximum sequence length for padding
-        let max_seq_len = batch_inputs.iter().map(|seq| seq.len()).max().unwrap_or(0);
         let batch_size = batch_inputs.len();
+        let hidden_size = self.network.hidden_size;
+        let padded_inputs = pad_batch(batch_inputs, self.network.input_size);
+        let (outputs, caches) = self.network.forward_sequence_with_cache(&padded_inputs);
 
         let mut total_loss = 0.0;
-        let mut total_gradients = self.network.zero_gradients();
         let mut valid_steps = 0;
-
-        // Initialize batch states
-        let mut batch_hx = Array2::zeros((self.network.hidden_size, batch_size));
-        let mut batch_cx = Array2::zeros((self.network.hidden_size, batch_size));
-
-        // Process each time step
-        for t in 0..max_seq_len {
-            // Prepare batch input and targets for current time step
-            let mut batch_input = Array2::zeros((self.network.input_size, batch_size));
-            let mut batch_target = Array2::zeros((self.network.hidden_size, batch_size));
-            let mut active_sequences = Vec::new();
-
-            // Collect active sequences for this time step
-            for (batch_idx, (input_seq, target_seq)) in
-                batch_inputs.iter().zip(batch_targets.iter()).enumerate()
-            {
-                if t < input_seq.len() && t < target_seq.len() {
-                    batch_input
-                        .column_mut(batch_idx)
-                        .assign(&input_seq[t].column(0));
-                    batch_target
-                        .column_mut(batch_idx)
-                        .assign(&target_seq[t].column(0));
-                    active_sequences.push(batch_idx);
+        let mut d_outputs = Vec::with_capacity(outputs.len());
+        for (t, (prediction, _)) in outputs.iter().enumerate() {
+            let active: Vec<usize> = (0..batch_size)
+                .filter(|&b| t < batch_inputs[b].len() && t < batch_targets[b].len())
+                .collect();
+            let mut d_output = Array2::zeros((hidden_size, batch_size));
+            if !active.is_empty() {
+                let mut preds = Array2::zeros((hidden_size, active.len()));
+                let mut targs = Array2::zeros((hidden_size, active.len()));
+                for (i, &b) in active.iter().enumerate() {
+                    preds.column_mut(i).assign(&prediction.column(b));
+                    targs.column_mut(i).assign(&batch_targets[b][t].column(0));
+                }
+                total_loss += self.loss_function.compute_batch_loss(&preds, &targs);
+                valid_steps += 1;
+                let grad = self.loss_function.compute_batch_gradient(&preds, &targs);
+                for (i, &b) in active.iter().enumerate() {
+                    d_output.column_mut(b).assign(&grad.column(i));
                 }
             }
-
-            if active_sequences.is_empty() {
-                break;
-            }
-
-            // Forward pass with caching for active sequences
-            let (new_batch_hx, new_batch_cx, cache) =
-                self.network
-                    .forward_batch_with_cache(&batch_input, &batch_hx, &batch_cx);
-
-            // Compute loss only for active sequences
-            let active_predictions = if active_sequences.len() == batch_size {
-                new_batch_hx.clone()
-            } else {
-                let mut active_preds =
-                    Array2::zeros((self.network.hidden_size, active_sequences.len()));
-                for (idx, &batch_idx) in active_sequences.iter().enumerate() {
-                    active_preds
-                        .column_mut(idx)
-                        .assign(&new_batch_hx.column(batch_idx));
-                }
-                active_preds
-            };
-
-            let active_targets = if active_sequences.len() == batch_size {
-                batch_target.clone()
-            } else {
-                let mut active_targs =
-                    Array2::zeros((self.network.hidden_size, active_sequences.len()));
-                for (idx, &batch_idx) in active_sequences.iter().enumerate() {
-                    active_targs
-                        .column_mut(idx)
-                        .assign(&batch_target.column(batch_idx));
-                }
-                active_targs
-            };
-
-            let step_loss = self
-                .loss_function
-                .compute_batch_loss(&active_predictions, &active_targets);
-            total_loss += step_loss;
-            valid_steps += 1;
-
-            // Compute gradients
-            let dhy = self
-                .loss_function
-                .compute_batch_gradient(&active_predictions, &active_targets);
-            let _dcy = Array2::<f64>::zeros(dhy.raw_dim());
-
-            // Expand gradients back to full batch size if needed
-            let full_dhy = if active_sequences.len() == batch_size {
-                dhy
-            } else {
-                let mut full_grad = Array2::zeros((self.network.hidden_size, batch_size));
-                for (idx, &batch_idx) in active_sequences.iter().enumerate() {
-                    full_grad.column_mut(batch_idx).assign(&dhy.column(idx));
-                }
-                full_grad
-            };
-
-            let full_dcy = Array2::<f64>::zeros(full_dhy.raw_dim());
-
-            // Backward pass
-            let (step_gradients, _) = self.network.backward_batch(&full_dhy, &full_dcy, &cache);
-
-            // Accumulate gradients
-            for (total_grad, step_grad) in total_gradients.iter_mut().zip(step_gradients.iter()) {
-                total_grad.w_ih = &total_grad.w_ih + &step_grad.w_ih;
-                total_grad.w_hh = &total_grad.w_hh + &step_grad.w_hh;
-                total_grad.b_ih = &total_grad.b_ih + &step_grad.b_ih;
-                total_grad.b_hh = &total_grad.b_hh + &step_grad.b_hh;
-            }
-
-            // Update states
-            batch_hx = new_batch_hx;
-            batch_cx = new_batch_cx;
+            d_outputs.push(d_output);
         }
 
-        // Apply gradient clipping
+        let (mut total_gradients, _) = self.network.backward_sequence(&d_outputs, &caches);
+
         if let Some(clip_value) = self.config.clip_gradient {
-            self.clip_gradients(&mut total_gradients, clip_value);
+            clip_global_norm(&mut total_gradients, clip_value);
         }
 
         // Update parameters
@@ -1035,28 +910,6 @@ impl<L: LossFunction, O: Optimizer> LSTMBatchTrainer<L, O> {
                     .collect()
             })
             .collect()
-    }
-
-    /// Clip gradients by global norm to prevent exploding gradients
-    fn clip_gradients(
-        &self,
-        gradients: &mut [crate::layers::lstm_cell::LSTMCellGradients],
-        max_norm: f64,
-    ) {
-        for gradient in gradients.iter_mut() {
-            self.clip_gradient_matrix(&mut gradient.w_ih, max_norm);
-            self.clip_gradient_matrix(&mut gradient.w_hh, max_norm);
-            self.clip_gradient_matrix(&mut gradient.b_ih, max_norm);
-            self.clip_gradient_matrix(&mut gradient.b_hh, max_norm);
-        }
-    }
-
-    fn clip_gradient_matrix(&self, matrix: &mut Array2<f64>, max_norm: f64) {
-        let norm = (&*matrix * &*matrix).sum().sqrt();
-        if norm > max_norm {
-            let scale = max_norm / norm;
-            *matrix = matrix.map(|x| x * scale);
-        }
     }
 
     pub fn get_latest_metrics(&self) -> Option<&TrainingMetrics> {

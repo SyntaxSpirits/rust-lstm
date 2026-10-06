@@ -71,10 +71,9 @@ fn main() {
     let char_emb = embedding.lookup(char_idx);
     let input = Array2::from_shape_vec((embed_dim, 1), char_emb.to_vec()).unwrap();
 
-    let h0 = Array2::zeros((hidden_size, 1));
-    let c0 = Array2::zeros((hidden_size, 1));
+    let state = lstm.zero_state(1);
 
-    let (hidden, _cell) = lstm.forward(&input, &h0, &c0);
+    let (hidden, _cell) = lstm.forward(&input, &state);
     let logits_2d = output_layer.forward(&hidden);
     let logits = logits_2d.column(0).to_owned();
 

@@ -66,11 +66,10 @@ fn main() {
     
     // Create input data
     let input = Array2::from_shape_vec((3, 1), vec![0.5, 0.1, -0.3]).unwrap();
-    let hx = Array2::zeros((10, 1));
-    let cx = Array2::zeros((10, 1));
+    let state = network.zero_state(1);
     
     // Forward pass
-    let (output, _) = network.forward(&input, &hx, &cx);
+    let (output, _) = network.forward(&input, &state);
     println!("Output: {:?}", output);
 }
 ```

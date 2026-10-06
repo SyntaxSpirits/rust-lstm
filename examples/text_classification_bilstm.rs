@@ -129,14 +129,12 @@ fn main() {
         let bilstm_sentiment = classify_sentiment(bilstm_final);
 
         // Process with standard LSTM
-        let mut hx = Array2::zeros((hidden_size, 1));
-        let mut cx = Array2::zeros((hidden_size, 1));
-        let mut lstm_final = hx.clone();
+        let mut state = lstm.zero_state(1);
+        let mut lstm_final = state.h[0].clone();
 
         for input in &sequence {
-            let (new_hx, new_cx) = lstm.forward(input, &hx, &cx);
-            hx = new_hx.clone();
-            cx = new_cx;
+            let (new_hx, next_state) = lstm.forward(input, &state);
+            state = next_state;
             lstm_final = new_hx;
         }
         let lstm_sentiment = classify_sentiment(&lstm_final);
