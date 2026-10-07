@@ -58,8 +58,23 @@ fn sequence(len: usize, rows: usize, batch: usize, seed: usize) -> Vec<Array2<f6
     (0..len).map(|t| data(rows, batch, seed + t)).collect()
 }
 
-fn lstm_loss(net: &LSTMNetwork, xs: &[Array2<f64>], ys: &[Array2<f64>]) -> f64 {
+/// With `mask_seed`, the generator is reseeded and variational masks are cleared first,
+/// so every evaluation draws the same dropout and zoneout masks in training mode.
+fn prepare(net: &mut LSTMNetwork, mask_seed: Option<u64>) {
+    if let Some(s) = mask_seed {
+        rust_lstm::seed(s);
+        net.reset_dropout_masks();
+    }
+}
+
+fn lstm_loss(
+    net: &LSTMNetwork,
+    xs: &[Array2<f64>],
+    ys: &[Array2<f64>],
+    mask_seed: Option<u64>,
+) -> f64 {
     let mut net = net.clone();
+    prepare(&mut net, mask_seed);
     let mut state = net.zero_state(xs[0].ncols());
     let mut total = 0.0;
     for (x, y) in xs.iter().zip(ys) {
@@ -74,8 +89,10 @@ fn lstm_analytic(
     net: &LSTMNetwork,
     xs: &[Array2<f64>],
     ys: &[Array2<f64>],
+    mask_seed: Option<u64>,
 ) -> (Vec<rust_lstm::LSTMCellGradients>, Vec<Array2<f64>>) {
     let mut run = net.clone();
+    prepare(&mut run, mask_seed);
     let mut state = run.zero_state(xs[0].ncols());
     let mut caches = Vec::new();
     let mut d_outputs = Vec::new();
@@ -88,9 +105,15 @@ fn lstm_analytic(
     net.backward_sequence(&d_outputs, &caches)
 }
 
-fn check_lstm(net: &LSTMNetwork, xs: &[Array2<f64>], ys: &[Array2<f64>], label: &str) {
-    let (grads, d_inputs) = lstm_analytic(net, xs, ys);
-    let loss = |n: &LSTMNetwork| lstm_loss(n, xs, ys);
+fn check_lstm(
+    net: &LSTMNetwork,
+    xs: &[Array2<f64>],
+    ys: &[Array2<f64>],
+    label: &str,
+    mask_seed: Option<u64>,
+) {
+    let (grads, d_inputs) = lstm_analytic(net, xs, ys, mask_seed);
+    let loss = |n: &LSTMNetwork| lstm_loss(n, xs, ys, mask_seed);
     for (l, g) in grads.iter().enumerate() {
         assert_close(
             &format!("{label} layer {l} w_ih"),
@@ -125,7 +148,7 @@ fn check_lstm(net: &LSTMNetwork, xs: &[Array2<f64>], ys: &[Array2<f64>], label: 
         let input_loss = |x: &Array2<f64>| {
             let mut perturbed = xs.to_vec();
             perturbed[t] = x.clone();
-            lstm_loss(net, &perturbed, ys)
+            lstm_loss(net, &perturbed, ys, mask_seed)
         };
         assert_close(
             &format!("{label} input {t}"),
@@ -144,7 +167,7 @@ fn lstm_network_bptt_matches_finite_differences() {
         net.eval();
         let xs = sequence(6, 3, 2, 1);
         let ys = sequence(6, 4, 2, 50);
-        check_lstm(&net, &xs, &ys, &format!("{layers}-layer"));
+        check_lstm(&net, &xs, &ys, &format!("{layers}-layer"), None);
     }
 }
 
@@ -164,7 +187,7 @@ fn lstm_network_with_dropout_and_zoneout_matches_finite_differences() {
     // a deterministic function of the parameters.
     let state = net.zero_state(2);
     net.forward(&xs[0], &state);
-    check_lstm(&net, &xs, &ys, "dropout");
+    check_lstm(&net, &xs, &ys, "dropout", None);
 }
 
 #[test]
@@ -175,7 +198,21 @@ fn lstm_network_with_cell_update_dropout_matches_finite_differences() {
     let ys = sequence(5, 4, 2, 75);
     let state = net.zero_state(2);
     net.forward(&xs[0], &state);
-    check_lstm(&net, &xs, &ys, "cell update dropout");
+    check_lstm(&net, &xs, &ys, "cell update dropout", None);
+}
+
+#[test]
+fn lstm_network_in_training_mode_matches_finite_differences() {
+    let mut net = LSTMNetwork::new(3, 4, 2)
+        .with_input_dropout(0.2, false)
+        .with_recurrent_dropout(0.3, false)
+        .with_cell_update_dropout(0.3, false)
+        .with_output_dropout(0.3)
+        .with_zoneout(0.3, 0.2);
+    net.train();
+    let xs = sequence(6, 3, 2, 8);
+    let ys = sequence(6, 4, 2, 85);
+    check_lstm(&net, &xs, &ys, "training mode", Some(11));
 }
 
 #[test]
@@ -331,6 +368,71 @@ fn gru_network_with_zoneout_matches_finite_differences() {
 }
 
 #[test]
+fn gru_network_in_training_mode_matches_finite_differences() {
+    const MASK_SEED: u64 = 13;
+    let mut net = GRUNetwork::new(3, 4, 2)
+        .with_input_dropout(0.2, false)
+        .with_recurrent_dropout(0.3, false)
+        .with_candidate_dropout(0.3, false)
+        .with_output_dropout(0.3)
+        .with_zoneout(0.2);
+    net.train();
+    let xs = sequence(6, 3, 2, 9);
+    let ys = sequence(6, 4, 2, 95);
+    let seeded = |n: &GRUNetwork| {
+        rust_lstm::seed(MASK_SEED);
+        let mut n = n.clone();
+        n.reset_dropout_masks();
+        n
+    };
+
+    let mut run = seeded(&net);
+    let mut h: Vec<Array2<f64>> = (0..2).map(|_| Array2::zeros((4, 2))).collect();
+    let mut caches = Vec::new();
+    let mut d_outputs = Vec::new();
+    for (x, y) in xs.iter().zip(&ys) {
+        let (next, cache) = run.forward_with_cache(x, &h);
+        d_outputs.push(MSELoss.compute_batch_gradient(next.last().unwrap(), y));
+        caches.push(cache);
+        h = next;
+    }
+    let (grads, d_inputs) = net.backward_sequence(&d_outputs, &caches);
+
+    let loss = |n: &GRUNetwork| gru_loss(&seeded(n), &xs, &ys);
+    for (l, g) in grads.iter().enumerate() {
+        let params: [(&str, &Array2<f64>, GruParam); 4] = [
+            ("w_ir", &g.w_ir, |n, l| &mut n.get_cells_mut()[l].w_ir),
+            ("w_hz", &g.w_hz, |n, l| &mut n.get_cells_mut()[l].w_hz),
+            ("w_hh", &g.w_hh, |n, l| &mut n.get_cells_mut()[l].w_hh),
+            ("b_ih", &g.b_ih, |n, l| &mut n.get_cells_mut()[l].b_ih),
+        ];
+        for (name, analytic, select) in params {
+            assert_close(
+                &format!("GRU training mode layer {l} {name}"),
+                &net,
+                &loss,
+                &|n| select(n, l),
+                analytic,
+            );
+        }
+    }
+    for t in [0, 3, 5] {
+        let input_loss = |x: &Array2<f64>| {
+            let mut perturbed = xs.clone();
+            perturbed[t] = x.clone();
+            gru_loss(&seeded(&net), &perturbed, &ys)
+        };
+        assert_close(
+            &format!("GRU training mode input {t}"),
+            &xs[t],
+            &input_loss,
+            &|x| x,
+            &d_inputs[t],
+        );
+    }
+}
+
+#[test]
 fn bilstm_bptt_matches_finite_differences() {
     for mode in [CombineMode::Concat, CombineMode::Sum, CombineMode::Average] {
         let mut net = BiLSTMNetwork::new(3, 4, 2, mode.clone());
@@ -392,6 +494,51 @@ fn bilstm_bptt_matches_finite_differences() {
             &input_loss,
             &|x| x,
             &d_inputs[1],
+        );
+    }
+}
+
+#[test]
+fn bilstm_in_training_mode_matches_finite_differences() {
+    const MASK_SEED: u64 = 17;
+    let mut net = BiLSTMNetwork::new(3, 4, 2, CombineMode::Concat)
+        .with_recurrent_dropout(0.3, false)
+        .with_output_dropout(0.3)
+        .with_zoneout(0.2, 0.2);
+    net.train();
+    let xs = sequence(4, 3, 2, 12);
+    let ys = sequence(4, net.output_size(), 2, 88);
+    let loss = |n: &BiLSTMNetwork| {
+        rust_lstm::seed(MASK_SEED);
+        let mut n = n.clone();
+        n.forward_sequence(&xs)
+            .iter()
+            .zip(&ys)
+            .map(|(o, y)| MSELoss.compute_batch_loss(o, y))
+            .sum()
+    };
+    rust_lstm::seed(MASK_SEED);
+    let (outs, cache) = net.clone().forward_sequence_with_cache(&xs);
+    let d_outputs: Vec<_> = outs
+        .iter()
+        .zip(&ys)
+        .map(|(o, y)| MSELoss.compute_batch_gradient(o, y))
+        .collect();
+    let (f_grads, b_grads, _) = net.backward_sequence(&d_outputs, &cache);
+    for l in 0..2 {
+        assert_close(
+            &format!("BiLSTM training mode forward layer {l} w_hh"),
+            &net,
+            &loss,
+            &|n| &mut n.get_forward_cells_mut()[l].w_hh,
+            &f_grads[l].w_hh,
+        );
+        assert_close(
+            &format!("BiLSTM training mode backward layer {l} w_ih"),
+            &net,
+            &loss,
+            &|n| &mut n.get_backward_cells_mut()[l].w_ih,
+            &b_grads[l].w_ih,
         );
     }
 }
