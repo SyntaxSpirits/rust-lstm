@@ -122,8 +122,21 @@ def compare(case):
     return errors
 
 
+def compare_optimizer(case):
+    params = [tensor(p).requires_grad_() for p in case["initial"]]
+    make = {"adam": torch.optim.Adam, "rmsprop": torch.optim.RMSprop}[case["kind"]]
+    optimizer = make(params, lr=case["lr"])
+    for gradients in case["gradients"]:
+        for p, g in zip(params, gradients):
+            p.grad = tensor(g)
+        optimizer.step()
+    return max(max_abs(tensor(f), p.detach()) for f, p in zip(case["final"], params))
+
+
 def main(path):
     cases = json.load(open(path))
+    optimizer_cases = [c for c in cases if c["kind"] in ("adam", "rmsprop")]
+    cases = [c for c in cases if c not in optimizer_cases]
     print(f"PyTorch {torch.__version__}, float64")
     print(f"{'model':7} {'L':>2} {'H':>3} {'T':>4} {'B':>2}  "
           f"{'output':>9} {'loss':>9} {'dL/dθ':>9} {'dL/dx':>9}")
@@ -136,6 +149,10 @@ def main(path):
             f"{len(case['inputs']):>4} {len(case['inputs'][0][0]):>2}  "
             f"{e['output']:9.1e} {e['loss']:9.1e} {e['param_grad']:9.1e} {e['input_grad']:9.1e}"
         )
+    for case in optimizer_cases:
+        error = compare_optimizer(case)
+        worst = max(worst, error)
+        print(f"{case['kind']:7} 3 tensors, 6 steps: parameters {error:.1e}")
     print(f"largest absolute difference: {worst:.1e}")
     return worst
 

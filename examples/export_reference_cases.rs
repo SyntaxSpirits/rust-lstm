@@ -4,8 +4,10 @@
 //! cargo run --release --example export_reference_cases -- validation/cases.json
 
 use ndarray::Array2;
+use rust_lstm::optimizers::Optimizer;
 use rust_lstm::{
-    BiLSTMNetwork, CombineMode, GRUNetwork, LSTMCellGradients, LSTMNetwork, LossFunction, MSELoss,
+    Adam, BiLSTMNetwork, CombineMode, GRUNetwork, LSTMCellGradients, LSTMNetwork, LossFunction,
+    MSELoss, RMSprop,
 };
 use serde_json::{json, Value};
 
@@ -158,6 +160,35 @@ fn gru_case(input: usize, hidden: usize, layers: usize, len: usize, batch: usize
     })
 }
 
+/// Several parameter tensors updated in a fixed order for a few steps, as a model does.
+fn optimizer_case(kind: &str, mut optimizer: impl Optimizer, lr: f64) -> Value {
+    let shapes = [(4, 3), (4, 4), (4, 1)];
+    let mut params: Vec<Array2<f64>> = shapes
+        .iter()
+        .map(|&(r, c)| random_sequence(1, r, c).remove(0))
+        .collect();
+    let initial = params.clone();
+    let steps: Vec<Vec<Array2<f64>>> = (0..6)
+        .map(|_| {
+            shapes
+                .iter()
+                .map(|&(r, c)| random_sequence(1, r, c).remove(0))
+                .collect()
+        })
+        .collect();
+    for gradients in &steps {
+        for (i, (p, g)) in params.iter_mut().zip(gradients).enumerate() {
+            optimizer.update(&format!("p{i}"), p, g);
+        }
+    }
+    json!({
+        "kind": kind, "lr": lr,
+        "initial": Value::Array(initial.iter().map(matrix).collect()),
+        "gradients": Value::Array(steps.iter().map(|s| matrices(s)).collect()),
+        "final": Value::Array(params.iter().map(matrix).collect()),
+    })
+}
+
 fn main() {
     let path = std::env::args()
         .nth(1)
@@ -174,6 +205,8 @@ fn main() {
     }
     cases.push(bilstm_case(3, 5, 1, 10, 2));
     cases.push(bilstm_case(4, 6, 2, 15, 3));
+    cases.push(optimizer_case("adam", Adam::new(0.01), 0.01));
+    cases.push(optimizer_case("rmsprop", RMSprop::new(0.01), 0.01));
 
     std::fs::write(&path, serde_json::to_string(&cases).unwrap()).unwrap();
     println!("wrote {} cases to {}", cases.len(), path);

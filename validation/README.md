@@ -5,7 +5,7 @@ Reference checks that are not part of `cargo test` because they need PyTorch.
 ```bash
 pip install -r validation/requirements.txt
 
-# Outputs and BPTT gradients against torch.nn.LSTM (float64)
+# Outputs and BPTT gradients against torch.nn.LSTM, optimiser steps against torch.optim (float64)
 cargo run --release --example export_reference_cases -- validation/cases.json
 python validation/pytorch_parity.py validation/cases.json
 
