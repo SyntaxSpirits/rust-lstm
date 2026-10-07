@@ -427,7 +427,7 @@ cargo test
 
 ## Version History
 
-- **v0.10.0**: Reproducible runs with `seed`, cell-update dropout (LSTM), candidate dropout and zoneout (GRU)
+- **v0.10.0**: Adam bias-correction fix, reproducible runs with `seed`, cell-update dropout (LSTM), candidate dropout and zoneout (GRU)
 - **v0.9.0**: Full BPTT, per-layer recurrent state, verified gradients (breaking API change, see CHANGELOG)
 - **v0.8.0**: Text generation utilities
 - **v0.7.0**: Linear (dense) layer

@@ -14,7 +14,7 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.23178447
     description: Concept DOI for all versions
-date-released: 2026-10-06
+date-released: 2026-10-07
 license: MIT
 repository-code: "https://github.com/SyntaxSpirits/rust-lstm"
 url: "https://docs.rs/rust-lstm"
