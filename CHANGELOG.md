@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Adam**: the bias-correction step count was shared by all parameters and advanced on
+  every parameter update, so a model with n parameter tensors applied the correction for
+  step n·t at step t, and the effective step size depended on the number and order of
+  tensors. Each parameter now keeps its own step count; updates match `torch.optim.Adam`
+  to 1e-16.
+
 ### Added
 - `rust_lstm::seed(u64)`: one seedable generator per thread drives weight
   initialisation, dropout and zoneout masks and text sampling, so runs are reproducible.

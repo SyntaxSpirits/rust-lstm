@@ -43,15 +43,22 @@ impl Optimizer for SGD {
     }
 }
 
-/// Adam optimizer with adaptive learning rates
+/// Adam optimizer with adaptive learning rates (Kingma & Ba, 2015).
+///
+/// Moments and the bias-correction step count are kept per parameter, so each
+/// parameter follows the algorithm exactly however many parameters a model has.
 pub struct Adam {
     learning_rate: f64,
     beta1: f64,
     beta2: f64,
     epsilon: f64,
-    t: i32,
-    m: HashMap<String, Array2<f64>>,
-    v: HashMap<String, Array2<f64>>,
+    state: HashMap<String, AdamState>,
+}
+
+struct AdamState {
+    step: i32,
+    m: Array2<f64>,
+    v: Array2<f64>,
 }
 
 impl Adam {
@@ -65,41 +72,34 @@ impl Adam {
             beta1,
             beta2,
             epsilon,
-            t: 0,
-            m: HashMap::new(),
-            v: HashMap::new(),
+            state: HashMap::new(),
         }
     }
 }
 
 impl Optimizer for Adam {
     fn update(&mut self, param_id: &str, param: &mut Array2<f64>, gradient: &Array2<f64>) {
-        self.t += 1;
+        let state = self
+            .state
+            .entry(param_id.to_string())
+            .or_insert_with(|| AdamState {
+                step: 0,
+                m: Array2::zeros(param.raw_dim()),
+                v: Array2::zeros(param.raw_dim()),
+            });
+        state.step += 1;
+        state.m = self.beta1 * &state.m + (1.0 - self.beta1) * gradient;
+        state.v = self.beta2 * &state.v + (1.0 - self.beta2) * gradient * gradient;
 
-        if !self.m.contains_key(param_id) {
-            self.m
-                .insert(param_id.to_string(), Array2::zeros(param.raw_dim()));
-            self.v
-                .insert(param_id.to_string(), Array2::zeros(param.raw_dim()));
-        }
+        let m_hat = &state.m / (1.0 - self.beta1.powi(state.step));
+        let v_hat = &state.v / (1.0 - self.beta2.powi(state.step));
 
-        let m_t = self.m.get_mut(param_id).unwrap();
-        let v_t = self.v.get_mut(param_id).unwrap();
-
-        *m_t = self.beta1 * &*m_t + (1.0 - self.beta1) * gradient;
-        *v_t = self.beta2 * &*v_t + (1.0 - self.beta2) * gradient * gradient;
-
-        let m_hat = &*m_t / (1.0 - self.beta1.powi(self.t));
-        let v_hat = &*v_t / (1.0 - self.beta2.powi(self.t));
-
-        let update = self.learning_rate * m_hat / (v_hat.map(|x| x.sqrt()) + self.epsilon);
+        let update = self.learning_rate * m_hat / (v_hat.mapv(f64::sqrt) + self.epsilon);
         *param = &*param - update;
     }
 
     fn reset(&mut self) {
-        self.t = 0;
-        self.m.clear();
-        self.v.clear();
+        self.state.clear();
     }
 
     fn set_learning_rate(&mut self, lr: f64) {
@@ -361,6 +361,47 @@ mod tests {
         optimizer.update("test_param", &mut param, &gradient);
 
         assert!((param - original_param).map(|x| x.abs()).sum() > 1e-10);
+    }
+
+    #[test]
+    fn adam_steps_each_parameter_independently() {
+        let lr = 0.001;
+        let gradients = [
+            arr2(&[[0.1, -0.2], [0.3, 0.05]]),
+            arr2(&[[-0.4, 0.1], [0.2, 0.2]]),
+            arr2(&[[0.3, 0.3], [-0.1, 0.6]]),
+        ];
+
+        let mut alone = Adam::new(lr);
+        let mut a = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
+        for g in &gradients {
+            alone.update("a", &mut a, g);
+        }
+
+        let mut shared = Adam::new(lr);
+        let mut b = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
+        let mut others = [Array2::zeros((3, 3)), Array2::zeros((1, 5))];
+        for g in &gradients {
+            for (i, other) in others.iter_mut().enumerate() {
+                let og = Array2::from_elem(other.raw_dim(), 0.5);
+                shared.update(&format!("other_{i}"), other, &og);
+            }
+            shared.update("b", &mut b, g);
+        }
+
+        assert!((&a - &b).iter().all(|d| d.abs() < 1e-15));
+    }
+
+    #[test]
+    fn adam_first_step_moves_each_weight_by_the_learning_rate() {
+        let mut optimizer = Adam::new(0.01);
+        let mut first = arr2(&[[0.0, 0.0]]);
+        let mut second = arr2(&[[0.0, 0.0]]);
+        optimizer.update("first", &mut first, &arr2(&[[2.0, -0.5]]));
+        optimizer.update("second", &mut second, &arr2(&[[0.3, -7.0]]));
+        for value in first.iter().chain(second.iter()) {
+            assert!((value.abs() - 0.01).abs() < 1e-8);
+        }
     }
 
     #[test]

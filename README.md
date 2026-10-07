@@ -413,7 +413,8 @@ dropout and zoneout masks and text sampling on that thread then repeat exactly.
   with variational dropout and zoneout, GRU, BiLSTM in all combine modes, peephole LSTM,
   embedding → LSTM → linear → cross-entropy) with central finite differences.
 - `validation/` loads the weights of randomly initialised networks into `torch.nn.LSTM` and
-  compares outputs and BPTT gradients in float64; the largest difference is 3.3e-16
+  compares outputs and BPTT gradients in float64, and replays Adam and RMSprop steps with
+  `torch.optim`; differences stay at the level of float64 rounding
   ([results](validation/results/parity.txt)). This check runs in CI.
 
 ## Testing
