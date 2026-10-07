@@ -5,7 +5,7 @@ Reference checks that are not part of `cargo test` because they need PyTorch.
 ```bash
 pip install -r validation/requirements.txt
 
-# Outputs and BPTT gradients against torch.nn.LSTM (float64)
+# Outputs and BPTT gradients against torch.nn.LSTM, optimiser steps against torch.optim (float64)
 cargo run --release --example export_reference_cases -- validation/cases.json
 python validation/pytorch_parity.py validation/cases.json
 
@@ -15,5 +15,5 @@ python validation/benchmark_pytorch.py --threads 1 --dtype float64 > validation/
 ```
 
 `results/` holds the output of these commands on an Apple M1 Pro (macOS 14.5,
-Rust 1.86, PyTorch 2.9.1). Finite-difference gradient checks for every layer run
+Rust 1.86): the parity check with PyTorch 2.14.1, the timings with PyTorch 2.9.1. Finite-difference gradient checks for every layer run
 with `cargo test --test gradient_check`.
