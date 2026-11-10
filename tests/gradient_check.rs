@@ -4,7 +4,7 @@ use ndarray::Array2;
 use rust_lstm::training::sequence_gradients;
 use rust_lstm::{
     BiLSTMNetwork, CharacterEmbedding, CombineMode, CrossEntropyLoss, GRUNetwork, LSTMNetwork,
-    LinearLayer, LossFunction, MSELoss, PeepholeLSTMCell,
+    LinearLayer, LossFunction, MAELoss, MSELoss, PeepholeLSTMCell,
 };
 
 type GruParam = fn(&mut GRUNetwork, usize) -> &mut Array2<f64>;
@@ -724,4 +724,45 @@ fn padded_batch_matches_individual_sequences() {
             assert!((a - b).iter().all(|d| d.abs() < 1e-12));
         }
     }
+}
+
+fn check_batch_loss_gradient(
+    name: &str,
+    loss: &dyn LossFunction,
+    preds: &Array2<f64>,
+    targets: &Array2<f64>,
+) {
+    let analytic = loss.compute_batch_gradient(preds, targets);
+    assert_close(
+        name,
+        preds,
+        &|p| loss.compute_batch_loss(p, targets),
+        &|p| p,
+        &analytic,
+    );
+}
+
+/// The batch gradient must be the derivative of the batch loss (mean over columns).
+#[test]
+fn batch_loss_gradients() {
+    let preds = data(4, 3, 17);
+    let targets = data(4, 3, 41);
+    check_batch_loss_gradient("mse batch", &MSELoss, &preds, &targets);
+    check_batch_loss_gradient("mae batch", &MAELoss, &preds, &targets);
+
+    let logits = &preds * 3.0;
+    let one_hot = Array2::from_shape_fn((4, 3), |(i, j)| f64::from(i == (j + 1) % 4));
+    check_batch_loss_gradient(
+        "cross-entropy one-hot batch",
+        &CrossEntropyLoss,
+        &logits,
+        &one_hot,
+    );
+    let soft = rust_lstm::loss::softmax(&targets);
+    check_batch_loss_gradient(
+        "cross-entropy soft batch",
+        &CrossEntropyLoss,
+        &logits,
+        &soft,
+    );
 }
