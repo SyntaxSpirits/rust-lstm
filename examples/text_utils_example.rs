@@ -127,7 +127,11 @@ fn main() {
 
     println!("   Top 5 most likely next characters:");
     for (ch, prob) in prob_chars.iter().take(5) {
-        let display = if *ch == ' ' { "' '" } else { &ch.to_string() };
+        let display = if *ch == ' ' {
+            "' '".to_string()
+        } else {
+            ch.to_string()
+        };
         println!("   {:>3}: {:.1}%", display, prob * 100.0);
     }
 
