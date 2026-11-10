@@ -8,10 +8,11 @@
 
 use ndarray::Array2;
 use rust_lstm::{
-    persistence::{ModelMetadata, ModelPersistence, PersistentModel},
+    persistence::{ModelMetadata, ModelPersistence, PersistenceError, PersistentModel},
     training::create_basic_trainer,
     LSTMNetwork,
 };
+use std::path::Path;
 use tempfile::tempdir;
 
 #[test]
@@ -293,4 +294,254 @@ fn test_error_handling() {
 
     let result = network.save("/invalid/path/that/does/not/exist.json", metadata);
     assert!(result.is_err());
+}
+
+fn fixture_metadata(name: &str) -> ModelMetadata {
+    ModelMetadata {
+        model_name: name.to_string(),
+        version: "0.10.0".to_string(),
+        created_at: "2026-10-07T00:00:00+00:00".to_string(),
+        input_size: 3,
+        hidden_size: 4,
+        num_layers: 2,
+        total_epochs: 0,
+        final_loss: None,
+        description: None,
+    }
+}
+
+fn fixture_inputs() -> Vec<Array2<f64>> {
+    (0..3)
+        .map(|t| Array2::from_shape_fn((3, 1), |(i, _)| ((t * 3 + i) as f64 * 0.37).sin()))
+        .collect()
+}
+
+fn cell_config(cell: &rust_lstm::LSTMCell) -> Vec<Option<(f64, bool, bool)>> {
+    let mut config: Vec<_> = [
+        &cell.input_dropout,
+        &cell.recurrent_dropout,
+        &cell.output_dropout,
+        &cell.cell_update_dropout,
+    ]
+    .iter()
+    .map(|d| {
+        d.as_ref()
+            .map(|d| (d.dropout_rate, d.variational, d.is_training))
+    })
+    .collect();
+    config.push(cell.zoneout.as_ref().map(|z| {
+        (
+            z.cell_zoneout_rate + 10.0 * z.hidden_zoneout_rate,
+            false,
+            z.is_training,
+        )
+    }));
+    config
+}
+
+#[test]
+fn save_load_keeps_dropout_zoneout_and_mode() {
+    let dir = tempdir().unwrap();
+    let mut network = LSTMNetwork::new(3, 4, 2)
+        .with_input_dropout(0.2, true)
+        .with_recurrent_dropout(0.3, false)
+        .with_output_dropout(0.25)
+        .with_cell_update_dropout(0.15, true)
+        .with_zoneout(0.4, 0.6);
+    network.eval();
+    let xs = fixture_inputs();
+    let expected = network.forward_sequence(&xs);
+
+    for file in ["config.json", "config.bin"] {
+        let path = dir.path().join(file);
+        network.save(&path, fixture_metadata(file)).unwrap();
+        let (mut loaded, _) = LSTMNetwork::load(&path).unwrap();
+
+        assert!(!loaded.is_training, "{file}");
+        for (a, b) in network.get_cells().iter().zip(loaded.get_cells()) {
+            assert!(!b.is_training, "{file}");
+            assert_eq!(cell_config(a), cell_config(b), "{file}");
+        }
+        let outputs = loaded.forward_sequence(&xs);
+        for (a, b) in expected.iter().zip(&outputs) {
+            assert!((a - b).iter().all(|d| d.abs() < 1e-15), "{file}");
+        }
+
+        let mut without_zoneout = loaded.clone();
+        for cell in without_zoneout.get_cells_mut() {
+            cell.zoneout = None;
+        }
+        let stripped = without_zoneout.forward_sequence(&xs);
+        assert!((&stripped[2] - &outputs[2]).iter().any(|d| d.abs() > 1e-6));
+    }
+
+    network.train();
+    let path = dir.path().join("training.json");
+    network.save(&path, fixture_metadata("training")).unwrap();
+    let (loaded, _) = LSTMNetwork::load(&path).unwrap();
+    assert!(loaded.is_training);
+    assert!(loaded.get_cells().iter().all(|c| c.is_training));
+}
+
+#[test]
+fn save_load_keeps_component_modes() {
+    let dir = tempdir().unwrap();
+    let mut network = LSTMNetwork::new(3, 4, 2)
+        .with_input_dropout(0.2, true)
+        .with_recurrent_dropout(0.3, false)
+        .with_zoneout(0.4, 0.6);
+    network.get_cells_mut()[0].zoneout.as_mut().unwrap().eval();
+    network.get_cells_mut()[1]
+        .recurrent_dropout
+        .as_mut()
+        .unwrap()
+        .eval();
+    network.eval();
+    network.get_cells_mut()[1]
+        .input_dropout
+        .as_mut()
+        .unwrap()
+        .train();
+
+    for file in ["modes.json", "modes.bin"] {
+        let path = dir.path().join(file);
+        network.save(&path, fixture_metadata(file)).unwrap();
+        let (loaded, _) = LSTMNetwork::load(&path).unwrap();
+        for (a, b) in network.get_cells().iter().zip(loaded.get_cells()) {
+            assert_eq!(a.is_training, b.is_training, "{file}");
+            assert_eq!(cell_config(a), cell_config(b), "{file}");
+        }
+    }
+
+    let mut training = network.clone();
+    training.train();
+    training.get_cells_mut()[0].zoneout.as_mut().unwrap().eval();
+    let path = dir.path().join("zoneout_eval.bin");
+    training
+        .save(&path, fixture_metadata("zoneout_eval"))
+        .unwrap();
+    let (loaded, _) = LSTMNetwork::load(&path).unwrap();
+    let cell = &loaded.get_cells()[0];
+    assert!(cell.is_training);
+    assert!(!cell.zoneout.as_ref().unwrap().is_training);
+    assert!(cell.input_dropout.as_ref().unwrap().is_training);
+}
+
+/// Files under tests/fixtures/v0_10_0 were written by `PersistentModel::save` of
+/// rust-lstm 0.10.0, together with the output of the saved network on `fixture_inputs`.
+#[test]
+fn loads_models_saved_by_0_10_0() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v0_10_0");
+    let expected: Vec<f64> =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("lstm_3_4_2_output.json")).unwrap())
+            .unwrap();
+
+    let mut weights = Vec::new();
+    for file in ["lstm_3_4_2.json", "lstm_3_4_2.bin"] {
+        let (mut network, metadata) = LSTMNetwork::load(dir.join(file)).unwrap();
+        assert_eq!(metadata.model_name, "lstm_3_4_2", "{file}");
+        assert_eq!(metadata.version, "0.10.0", "{file}");
+        assert_eq!(metadata.total_epochs, 5, "{file}");
+        assert_eq!(metadata.final_loss, Some(0.125), "{file}");
+        assert_eq!(
+            (network.input_size, network.hidden_size, network.num_layers),
+            (3, 4, 2)
+        );
+        assert!(network.is_training);
+        for cell in network.get_cells() {
+            assert!(cell.is_training);
+            assert!(cell_config(cell).iter().all(Option::is_none));
+        }
+
+        let output = network.forward_sequence(&fixture_inputs()).pop().unwrap();
+        assert_eq!(output.len(), expected.len());
+        for (a, b) in output.iter().zip(&expected) {
+            assert!((a - b).abs() < 1e-15, "{file}: {a} vs {b}");
+        }
+        weights.push(
+            network
+                .get_cells()
+                .iter()
+                .flat_map(|c| [&c.w_ih, &c.w_hh, &c.b_ih, &c.b_hh])
+                .flat_map(|m| m.iter().copied().collect::<Vec<_>>())
+                .collect::<Vec<f64>>(),
+        );
+    }
+    assert_eq!(weights[0].len(), weights[1].len());
+    assert!(weights[0]
+        .iter()
+        .zip(&weights[1])
+        .all(|(a, b)| (a - b).abs() < 1e-15));
+}
+
+fn saved_json(dir: &Path) -> serde_json::Value {
+    let path = dir.join("valid.json");
+    LSTMNetwork::new(3, 4, 2)
+        .with_input_dropout(0.1, false)
+        .save(&path, fixture_metadata("valid"))
+        .unwrap();
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn assert_load_fails(path: &Path) {
+    match LSTMNetwork::load(path) {
+        Err(PersistenceError::SerializationError(_)) => {}
+        Err(other) => panic!("unexpected error {other}"),
+        Ok(_) => panic!("{} loaded", path.display()),
+    }
+}
+
+#[test]
+fn malformed_files_return_errors() {
+    let dir = tempdir().unwrap();
+    let corruptions: [(&str, fn(&mut serde_json::Value)); 5] = [
+        ("short_data", |v| {
+            v["network"]["cells"][0]["w_ih"]["data"]
+                .as_array_mut()
+                .unwrap()
+                .pop();
+        }),
+        ("transposed", |v| {
+            v["network"]["cells"][1]["w_hh"]["shape"] = serde_json::json!([4, 16]);
+        }),
+        ("wrong_input_size", |v| {
+            v["network"]["input_size"] = serde_json::json!(5);
+        }),
+        ("missing_layer", |v| {
+            v["network"]["cells"].as_array_mut().unwrap().pop();
+        }),
+        ("dropout_rate", |v| {
+            v["network"]["cells"][0]["input_dropout"]["dropout_rate"] = serde_json::json!(1.5);
+        }),
+    ];
+    for (name, corrupt) in corruptions {
+        let mut value = saved_json(dir.path());
+        corrupt(&mut value);
+        let path = dir.path().join(format!("{name}.json"));
+        std::fs::write(&path, value.to_string()).unwrap();
+        assert_load_fails(&path);
+    }
+
+    let valid = dir.path().join("valid.bin");
+    LSTMNetwork::new(3, 4, 2)
+        .save(&valid, fixture_metadata("valid"))
+        .unwrap();
+    let bytes = std::fs::read(&valid).unwrap();
+    let mut future = bytes[..8].to_vec();
+    future.extend_from_slice(&99u32.to_le_bytes());
+    future.extend_from_slice(&bytes[12..]);
+    let legacy = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v0_10_0/lstm_3_4_2.bin"),
+    )
+    .unwrap();
+    for (name, contents) in [
+        ("truncated", bytes[..bytes.len() / 2].to_vec()),
+        ("header_only", bytes[..10].to_vec()),
+        ("future_version", future),
+        ("legacy_truncated", legacy[..legacy.len() - 40].to_vec()),
+    ] {
+        let path = dir.path().join(format!("{name}.bin"));
+        std::fs::write(&path, contents).unwrap();
+        assert_load_fails(&path);
+    }
 }

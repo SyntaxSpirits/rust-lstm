@@ -269,3 +269,92 @@ fn test_early_stopping_with_batch_trainer() {
         "Batch trainer should support early stopping"
     );
 }
+
+#[test]
+fn restore_best_weights_keeps_network_configuration() {
+    let mut network = LSTMNetwork::new(2, 3, 2)
+        .with_input_dropout(0.2, true)
+        .with_output_dropout(0.3)
+        .with_zoneout(0.4, 0.5);
+    network.eval();
+    let xs = vec![arr2(&[[0.3], [-0.7]]), arr2(&[[0.9], [0.1]])];
+    let expected = network.forward_sequence(&xs);
+
+    let mut stopper = EarlyStopper::new(EarlyStoppingConfig {
+        patience: 1,
+        min_delta: 0.0,
+        restore_best_weights: true,
+        monitor: EarlyStoppingMetric::TrainLoss,
+    });
+    let metrics = TrainingMetrics {
+        epoch: 0,
+        train_loss: 1.0,
+        validation_loss: None,
+        time_elapsed: 0.0,
+        learning_rate: 0.1,
+    };
+    assert_eq!(stopper.should_stop(&metrics, &network), (false, true));
+
+    for cell in network.get_cells_mut() {
+        cell.w_ih.mapv_inplace(|w| w + 0.5);
+        cell.b_hh.fill(1.0);
+    }
+    stopper.restore_best_weights(&mut network).unwrap();
+
+    assert!(!network.is_training);
+    for cell in network.get_cells() {
+        assert!(!cell.is_training);
+        assert!(cell.input_dropout.as_ref().unwrap().variational);
+        let zoneout = cell.zoneout.as_ref().unwrap();
+        assert_eq!(
+            (zoneout.cell_zoneout_rate, zoneout.hidden_zoneout_rate),
+            (0.4, 0.5)
+        );
+    }
+    assert!(network.get_cells()[0].output_dropout.is_some());
+    assert_eq!(network.forward_sequence(&xs), expected);
+}
+
+#[test]
+fn restore_best_weights_rejects_incompatible_networks() {
+    let recorded = LSTMNetwork::new(2, 3, 2);
+    let mut stopper = EarlyStopper::new(EarlyStoppingConfig {
+        patience: 1,
+        min_delta: 0.0,
+        restore_best_weights: true,
+        monitor: EarlyStoppingMetric::TrainLoss,
+    });
+    let metrics = TrainingMetrics {
+        epoch: 0,
+        train_loss: 1.0,
+        validation_loss: None,
+        time_elapsed: 0.0,
+        learning_rate: 0.1,
+    };
+    stopper.should_stop(&metrics, &recorded);
+
+    for mut other in [
+        LSTMNetwork::new(3, 4, 2),
+        LSTMNetwork::new(2, 3, 1),
+        LSTMNetwork::new(2, 3, 3),
+    ] {
+        let before: Vec<_> = other.get_cells().iter().map(|c| c.w_ih.clone()).collect();
+        assert!(stopper.restore_best_weights(&mut other).is_err());
+        let after: Vec<_> = other.get_cells().iter().map(|c| c.w_ih.clone()).collect();
+        assert_eq!(before, after);
+    }
+
+    let mut partly = LSTMNetwork::from_cells(
+        vec![
+            recorded.get_cells()[0].clone(),
+            rust_lstm::LSTMCell::new(3, 4),
+        ],
+        2,
+        3,
+        2,
+    );
+    let first = partly.get_cells()[0].w_ih.clone() + 1.0;
+    partly.get_cells_mut()[0].w_ih.assign(&first);
+    assert!(stopper.restore_best_weights(&mut partly).is_err());
+    assert_eq!(partly.get_cells()[0].w_ih, first);
+}
