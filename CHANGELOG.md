@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **text_generation_advanced example**: it trained only the LSTM against placeholder
+  targets and generated text through embedding and output layers that were never
+  trained. The embedding, LSTM and output layer are now trained together with softmax
+  cross-entropy on a small corpus.
+- The quick start now lists the `ndarray` dependency its code imports.
+
+### Changed
+- Minimum supported Rust version is 1.75 (1.70 was declared but not tested and no
+  longer builds). CI checks it and runs the tests on Linux, macOS and Windows.
+
 ## [0.10.0] - 2026-10-07
 
 ### Fixed

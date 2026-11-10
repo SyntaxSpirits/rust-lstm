@@ -8,7 +8,11 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -33,6 +37,33 @@ jobs:
 
       - name: Check examples
         run: cargo check --examples --all-features
+
+  msrv:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain for dependency resolution
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.75
+
+      - name: Build library with the newest dependencies
+        run: cargo build --lib
+
+      - name: Resolve dependencies compatible with the MSRV
+        run: cargo +stable generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Check examples
+        run: cargo check --examples --locked
 
   pytorch-parity:
     runs-on: ubuntu-latest
