@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   about 34.5 for confident wrong predictions while the gradient kept growing. The loss
   now uses a log-sum-exp log-softmax, so it is exact for extreme logits and large common
   offsets and consistent with its gradient.
+- **text_generation_advanced example**: it trained only the LSTM against placeholder
+  targets and generated text through embedding and output layers that were never
+  trained. The embedding, LSTM and output layer are now trained together with softmax
+  cross-entropy on a small corpus.
+- The quick start now lists the `ndarray` dependency its code imports.
 
 ### Changed
 - **Behaviour change**: the default `LossFunction::compute_batch_gradient` now divides
@@ -42,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Error = PersistenceError`.
 - Binary model files start with a format header; 0.10.0 and earlier cannot read files
   written by this version.
+- Minimum supported Rust version is 1.75 (1.70 was declared but not tested and no
+  longer builds). CI checks it and runs the tests on Linux, macOS and Windows.
 
 ## [0.10.0] - 2026-10-07
 

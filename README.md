@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/rust-lstm.svg)](https://crates.io/crates/rust-lstm)
 [![Documentation](https://docs.rs/rust-lstm/badge.svg)](https://docs.rs/rust-lstm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.75+-blue.svg)](https://www.rust-lang.org)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23178447.svg)](https://doi.org/10.5281/zenodo.23178447)
 
 A comprehensive LSTM (Long Short-Term Memory) neural network library implemented in Rust with complete training capabilities, multiple optimizers, and advanced regularization.
@@ -54,6 +54,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 rust-lstm = "0.10"
+ndarray = "0.15"
 ```
 
 ### Basic Usage

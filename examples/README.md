@@ -54,18 +54,18 @@ cargo run --example weather_prediction
 ### 3. 📝 **Advanced Text Generation** (`text_generation_advanced.rs`)
 **Use Case**: Natural language processing and generation  
 **Features**: Character-level modeling, vocabulary building, temperature sampling  
-**Demonstrates**: Sequence-to-sequence learning with discrete outputs
+**Demonstrates**: Training embedding, LSTM and output layer together by hand with the low-level API
 
 ```bash
-cargo run --example text_generation_advanced
+cargo run --release --example text_generation_advanced
 ```
 
 **Key Concepts**:
 - Character-level language modeling
-- One-hot encoding for categorical data
-- Cross-entropy loss for classification
-- Temperature-controlled sampling
-- Different text domains (poetry, code, prose)
+- `CharacterEmbedding` → `LSTMNetwork` → `LinearLayer` trained end to end with softmax cross-entropy
+- Backpropagation through time with `forward_sequence_with_cache` and `backward_sequence`
+- Gradients flowing from the loss into the embedding table
+- Temperature-controlled sampling from the trained model
 
 **Real-world Extensions**:
 - Word-level or subword tokenization (BPE)
@@ -174,15 +174,18 @@ Day 8: Predicted=18.5°C, Actual=18.2°C, Error=0.3°C
 
 ### Text Generation
 ```
-📝 Advanced Text Generation with Character-Level LSTM
-===================================================
-
-🎭 Training poetry model...
+Character-level LSTM language model
 ...
-🎲 Generating text samples:
-Temperature 0.5: The woods are lovely, dark and deep...
-Temperature 1.0: The roads are winding, long and steep...
-Temperature 1.5: The worlds are dancing, bright and free...
+Loss of a uniform guess: 2.708
+
+epoch   1: loss 2.7083
+epoch  20: loss 0.9542
+...
+epoch 100: loss 0.1777
+
+temperature 0.2: the dog saw the dog and the dog sat on the log. the cat saw the dog and the dog sat 
+temperature 0.5: the dog and the dog sat on the mat. the dog saw the dog and the dog sat on the log. 
+temperature 1.0: the cat. the cat saw the cat. the cat saw the cat. the cat saw the dog and the dog s
 ```
 
 ## 🛠️ Customization Guide

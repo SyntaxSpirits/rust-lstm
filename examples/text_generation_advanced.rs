@@ -1,206 +1,158 @@
-#![allow(clippy::type_complexity)]
-#![allow(clippy::field_reassign_with_default)]
-#![allow(clippy::empty_line_after_doc_comments)]
-#![allow(clippy::needless_range_loop)]
-#![allow(clippy::assertions_on_constants)]
-#![allow(clippy::absurd_extreme_comparisons)]
-#![allow(unused_comparisons)]
+//! Character-level language model trained end to end.
+//!
+//! Embedding, LSTM and output layer are trained together with softmax
+//! cross-entropy: every parameter receives a gradient on every step.
 
-use ndarray::Array2;
-use rust_lstm::layers::linear::LinearLayer;
-use rust_lstm::loss::CrossEntropyLoss;
-use rust_lstm::models::lstm_network::LSTMNetwork;
-use rust_lstm::optimizers::Adam;
-use rust_lstm::text::{sample_with_temperature, CharacterEmbedding, TextVocabulary};
-use rust_lstm::training::LSTMTrainer;
-use std::collections::HashMap;
+use ndarray::{s, Array1, Array2};
+use rust_lstm::{
+    sample_with_temperature, Adam, CharacterEmbedding, CrossEntropyLoss, LSTMNetwork, LinearLayer,
+    LossFunction, TextVocabulary,
+};
 
-struct CharacterLSTM {
-    vocab: TextVocabulary,
+const CORPUS: &str = "the cat sat on the mat. the dog sat on the log. \
+                      the cat saw the dog and the dog saw the cat. ";
+const SEQ_LEN: usize = 16;
+const EMBED_DIM: usize = 8;
+const HIDDEN_SIZE: usize = 32;
+const EPOCHS: usize = 100;
+
+struct CharModel {
     embedding: CharacterEmbedding,
-    network: LSTMNetwork,
-    output_layer: LinearLayer,
-    trainer: Option<LSTMTrainer<CrossEntropyLoss, Adam>>,
-    hidden_size: usize,
-    sequence_length: usize,
+    lstm: LSTMNetwork,
+    head: LinearLayer,
 }
 
-impl CharacterLSTM {
-    fn new(text: &str, sequence_length: usize, hidden_size: usize, embed_dim: usize) -> Self {
-        let vocab = TextVocabulary::from_text(text);
-        let embedding = CharacterEmbedding::new(vocab.size(), embed_dim);
-        let network = LSTMNetwork::new(embed_dim, hidden_size, 1);
-        let output_layer = LinearLayer::new(hidden_size, vocab.size());
-
-        println!("Vocabulary size: {}", vocab.size());
-        println!(
-            "Network: embed({}) -> LSTM({}) -> Linear({})",
-            embed_dim,
-            hidden_size,
-            vocab.size()
-        );
-
+impl CharModel {
+    fn new(vocab_size: usize) -> Self {
         Self {
-            vocab,
-            embedding,
-            network,
-            output_layer,
-            trainer: None,
-            hidden_size,
-            sequence_length,
+            embedding: CharacterEmbedding::new(vocab_size, EMBED_DIM),
+            lstm: LSTMNetwork::new(EMBED_DIM, HIDDEN_SIZE, 1),
+            head: LinearLayer::new(HIDDEN_SIZE, vocab_size),
         }
     }
 
-    fn create_sequences(&self, text: &str) -> Vec<(Vec<Array2<f64>>, Vec<Array2<f64>>)> {
-        let chars: Vec<char> = text.chars().collect();
-        let mut sequences = Vec::new();
+    /// Embeds `steps` time steps of a batch of windows; one (embed_dim, batch) matrix per step.
+    fn embed(&mut self, windows: &[&[usize]], steps: usize) -> Vec<Array2<f64>> {
+        let batch = windows.len();
+        let indices: Vec<usize> = (0..steps)
+            .flat_map(|t| windows.iter().map(move |w| w[t]))
+            .collect();
+        let embedded = self.embedding.forward(&indices);
+        (0..steps)
+            .map(|t| {
+                embedded
+                    .slice(s![t * batch..(t + 1) * batch, ..])
+                    .t()
+                    .to_owned()
+            })
+            .collect()
+    }
 
-        for i in 0..chars.len().saturating_sub(self.sequence_length + 1) {
-            let mut inputs = Vec::new();
-            let mut targets = Vec::new();
+    /// One optimisation step on a batch of windows of length `SEQ_LEN + 1`.
+    /// Returns the mean cross-entropy per character.
+    fn train_step(&mut self, windows: &[&[usize]], optimizer: &mut Adam) -> f64 {
+        let batch = windows.len();
+        let vocab_size = self.head.output_size;
+        let xs = self.embed(windows, SEQ_LEN);
+        let (outputs, caches) = self.lstm.forward_sequence_with_cache(&xs);
 
-            for j in 0..self.sequence_length {
-                let char_idx = self.vocab.char_to_index(chars[i + j]).unwrap_or(0);
-                let next_idx = self.vocab.char_to_index(chars[i + j + 1]).unwrap_or(0);
-
-                let emb = self.embedding.lookup(char_idx);
-                let input = Array2::from_shape_vec((emb.len(), 1), emb.to_vec()).unwrap();
-                inputs.push(input);
-
-                let mut target = Array2::zeros((self.hidden_size, 1));
-                target[[next_idx % self.hidden_size, 0]] = 1.0;
-                targets.push(target);
+        let mut loss = 0.0;
+        let mut head_grads = self.head.zero_gradients();
+        let mut d_outputs = Vec::with_capacity(SEQ_LEN);
+        for (t, (h, _)) in outputs.iter().enumerate() {
+            let mut targets = Array2::zeros((vocab_size, batch));
+            for (b, w) in windows.iter().enumerate() {
+                targets[[w[t + 1], b]] = 1.0;
             }
-
-            sequences.push((inputs, targets));
+            let logits = self.head.forward(h);
+            loss += CrossEntropyLoss.compute_loss(&logits, &targets) / SEQ_LEN as f64;
+            let d_logits = CrossEntropyLoss.compute_gradient(&logits, &targets) / SEQ_LEN as f64;
+            let (g, dh) = self.head.backward(&d_logits);
+            head_grads.weight += &g.weight;
+            head_grads.bias += &g.bias;
+            d_outputs.push(dh);
         }
 
-        sequences
+        let (lstm_grads, d_inputs) = self.lstm.backward_sequence(&d_outputs, &caches);
+        let mut d_embedded = Array2::zeros((SEQ_LEN * batch, EMBED_DIM));
+        for (t, d) in d_inputs.iter().enumerate() {
+            d_embedded
+                .slice_mut(s![t * batch..(t + 1) * batch, ..])
+                .assign(&d.t());
+        }
+        let embedding_grads = self.embedding.backward(&d_embedded);
+
+        self.lstm.update_parameters(&lstm_grads, optimizer);
+        self.head.update_parameters(&head_grads, optimizer, "head");
+        self.embedding
+            .update_parameters(&embedding_grads, optimizer, "embedding");
+        loss
     }
 
-    fn train(&mut self, text: &str, epochs: usize) {
-        println!("Creating sequences...");
-        let sequences = self.create_sequences(text);
-
-        if sequences.is_empty() {
-            println!("No sequences created!");
-            return;
-        }
-
-        let split = (sequences.len() as f64 * 0.9) as usize;
-        let (train, val) = sequences.split_at(split);
-
-        println!(
-            "Training on {} sequences, validating on {}",
-            train.len(),
-            val.len()
-        );
-
-        let loss_fn = CrossEntropyLoss;
-        let optimizer = Adam::new(0.002);
-        let mut trainer = LSTMTrainer::new(self.network.clone(), loss_fn, optimizer);
-
-        let mut config = rust_lstm::training::TrainingConfig::default();
-        config.epochs = epochs;
-        config.print_every = epochs / 5;
-        config.clip_gradient = Some(5.0);
-        trainer = trainer.with_config(config);
-
-        trainer.train(train, if val.is_empty() { None } else { Some(val) });
-        self.trainer = Some(trainer);
-
-        println!("Training complete!");
+    fn next_logits(&mut self, context: &[usize]) -> Array1<f64> {
+        let xs = self.embed(&[context], context.len());
+        let h = self.lstm.forward_sequence(&xs).pop().unwrap();
+        self.head.forward(&h).column(0).to_owned()
     }
 
-    fn generate(&mut self, seed: &str, length: usize, temperature: f64) -> String {
-        if self.trainer.is_none() {
-            return seed.to_string();
-        }
-
-        let mut generated = seed.to_string();
-        let mut chars: Vec<char> = seed.chars().collect();
-
-        while chars.len() < self.sequence_length {
-            chars.insert(0, ' ');
-        }
-
-        let network = &self.trainer.as_ref().unwrap().network;
-        let mut inference_net = network.clone();
-        inference_net.eval();
-
+    fn generate(
+        &mut self,
+        vocab: &TextVocabulary,
+        prompt: &str,
+        length: usize,
+        temp: f64,
+    ) -> String {
+        let mut tokens = vocab.encode(prompt);
         for _ in 0..length {
-            let start = chars.len().saturating_sub(self.sequence_length);
-            let window: Vec<char> = chars[start..].to_vec();
-
-            let mut state = inference_net.zero_state(1);
-
-            for ch in &window {
-                let idx = self.vocab.char_to_index(*ch).unwrap_or(0);
-                let emb = self.embedding.lookup(idx);
-                let input = Array2::from_shape_vec((emb.len(), 1), emb.to_vec()).unwrap();
-                let (_, next_state) = inference_net.forward(&input, &state);
-                state = next_state;
-            }
-
-            let logits_2d = self.output_layer.forward(&state.h[0]);
-            let logits = logits_2d.column(0).to_owned();
-
-            let next_idx = sample_with_temperature(&logits, temperature);
-            if let Some(next_char) = self.vocab.index_to_char(next_idx) {
-                generated.push(next_char);
-                chars.push(next_char);
-            }
+            let start = tokens.len().saturating_sub(SEQ_LEN);
+            let logits = self.next_logits(&tokens[start..]);
+            tokens.push(sample_with_temperature(&logits, temp));
         }
-
-        generated
+        vocab.decode(&tokens)
     }
-}
-
-fn get_sample_texts() -> HashMap<&'static str, &'static str> {
-    let mut texts = HashMap::new();
-
-    texts.insert(
-        "poetry",
-        "The woods are lovely, dark and deep, But I have promises to keep, \
-         And miles to go before I sleep, And miles to go before I sleep. \
-         Two roads diverged in a yellow wood, And sorry I could not travel both.",
-    );
-
-    texts.insert(
-        "code",
-        "fn main() { println!(\"Hello, world!\"); let x = 42; \
-         if x > 10 { println!(\"x is greater\"); } for i in 0..5 { println!(\"i = {}\", i); } }",
-    );
-
-    texts.insert(
-        "prose",
-        "In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, \
-         filled with the ends of worms and an oozy smell, nor yet a dry, bare, sandy hole.",
-    );
-
-    texts
 }
 
 fn main() {
-    println!("Character-Level LSTM with Text Utilities");
-    println!("=========================================\n");
+    rust_lstm::seed(42);
 
-    let texts = get_sample_texts();
+    let vocab = TextVocabulary::from_text(CORPUS);
+    let text = vocab.encode(&CORPUS.repeat(2));
+    let windows: Vec<&[usize]> = (0..CORPUS.chars().count())
+        .map(|i| &text[i..i + SEQ_LEN + 1])
+        .collect();
 
-    for (domain, text) in &texts {
-        println!("Domain: {}", domain);
-        println!("Text: {}...\n", &text[..text.len().min(60)]);
+    println!("Character-level LSTM language model");
+    println!("Corpus: \"{}\"", CORPUS);
+    println!(
+        "Vocabulary: {} characters, {} training windows of {} steps",
+        vocab.size(),
+        windows.len(),
+        SEQ_LEN
+    );
+    println!(
+        "Model: embedding({}) -> LSTM({}) -> linear({}) -> softmax",
+        EMBED_DIM,
+        HIDDEN_SIZE,
+        vocab.size()
+    );
+    println!(
+        "Loss of a uniform guess: {:.3}\n",
+        (vocab.size() as f64).ln()
+    );
 
-        let mut model = CharacterLSTM::new(text, 8, 32, 16);
-        model.train(text, 10);
-
-        println!("\nGenerated samples:");
-        for temp in [0.5, 1.0, 1.5] {
-            let seed: String = text.chars().take(5).collect();
-            let output = model.generate(&seed, 50, temp);
-            println!("  temp={:.1}: {}", temp, output);
+    let mut model = CharModel::new(vocab.size());
+    let mut optimizer = Adam::new(0.03);
+    for epoch in 1..=EPOCHS {
+        let loss = model.train_step(&windows, &mut optimizer);
+        if epoch == 1 || epoch % 20 == 0 {
+            println!("epoch {:>3}: loss {:.4}", epoch, loss);
         }
+    }
 
-        println!("\n{}\n", "=".repeat(50));
+    model.lstm.eval();
+    println!();
+    for temp in [0.2, 0.5, 1.0] {
+        let sample = model.generate(&vocab, "the ", 80, temp);
+        println!("temperature {:.1}: {}", temp, sample);
     }
 }
