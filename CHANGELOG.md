@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Persistence**: saved models kept only the weights, so loading reset input, recurrent,
+  output and cell-update dropout and zoneout to none and put the network in training
+  mode. Since zoneout changes evaluation outputs, a saved and reloaded model could
+  predict differently. Models now store this configuration and the training mode of
+  the network, of every cell and of every dropout and zoneout component.
+  Files written by 0.10.0 and earlier (JSON and binary) still load, with the old
+  defaults (no dropout or zoneout, training mode).
+- **Persistence**: malformed model files (wrong matrix shapes, layer sizes that do not
+  match, dropout or zoneout rates outside [0, 1], truncated files) made `load` panic.
+  They now return `PersistenceError::SerializationError`.
+- **Early stopping**: `EarlyStopper::restore_best_weights` replaced the whole network
+  with a weights-only copy, dropping its dropout, zoneout and training-mode
+  configuration. It now copies the best weights into the existing network, and returns
+  an error without changing the network if its layer count or parameter shapes differ
+  from the recorded ones.
+- **CrossEntropyLoss** computed the loss as `ln(softmax + 1e-15)`, which saturated at
+  about 34.5 for confident wrong predictions while the gradient kept growing. The loss
+  now uses a log-sum-exp log-softmax, so it is exact for extreme logits and large common
+  offsets and consistent with its gradient.
+
+### Changed
+- **Behaviour change**: the default `LossFunction::compute_batch_gradient` now divides
+  by the batch size, so it is the gradient of the default `compute_batch_loss` (the mean
+  over the batch). Before, it was the gradient of the sum, i.e. batch-size times too
+  large. This affects `LSTMBatchTrainer` with `CrossEntropyLoss` and custom losses that
+  rely on the default: gradients, and with SGD the effective step size, are smaller by
+  the number of sequences in the batch. Multiply the learning rate by the batch size
+  to keep the previous SGD steps. `MSELoss` and `MAELoss` already averaged over the
+  batch and are unchanged.
+- **Breaking**: `From<SerializableLSTMNetwork> for LSTMNetwork` and
+  `From<SerializableLSTMCell> for LSTMCell` became `TryFrom` with
+  `Error = PersistenceError`.
+- Binary model files start with a format header; 0.10.0 and earlier cannot read files
+  written by this version.
+
 ## [0.10.0] - 2026-10-07
 
 ### Fixed

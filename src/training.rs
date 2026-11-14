@@ -2,10 +2,11 @@ use crate::layers::lstm_cell::LSTMCellGradients;
 use crate::loss::{LossFunction, MSELoss};
 use crate::models::lstm_network::{pad_batch, LSTMNetwork};
 use crate::optimizers::{Optimizer, ScheduledOptimizer, SGD};
-use crate::persistence::SerializableLSTMNetwork;
 use crate::schedulers::LearningRateScheduler;
 use ndarray::Array2;
 use std::time::Instant;
+
+type CellWeights = [Array2<f64>; 4];
 
 /// Loss summed over the time steps of one sequence and its gradients obtained by
 /// backpropagation through time.
@@ -112,7 +113,7 @@ pub struct EarlyStopper {
     best_score: f64,
     wait_count: usize,
     stopped_epoch: Option<usize>,
-    best_weights: Option<SerializableLSTMNetwork>, // Serialized network weights
+    best_weights: Option<Vec<CellWeights>>,
 }
 
 impl EarlyStopper {
@@ -154,7 +155,20 @@ impl EarlyStopper {
 
             // Save best weights if restore_best_weights is enabled
             if self.config.restore_best_weights {
-                self.best_weights = Some(network.into());
+                self.best_weights = Some(
+                    network
+                        .get_cells()
+                        .iter()
+                        .map(|c| {
+                            [
+                                c.w_ih.clone(),
+                                c.w_hh.clone(),
+                                c.b_ih.clone(),
+                                c.b_hh.clone(),
+                            ]
+                        })
+                        .collect(),
+                );
             }
 
             (false, true)
@@ -180,14 +194,36 @@ impl EarlyStopper {
         self.best_score
     }
 
-    /// Restore the best weights to the network if available
+    /// Restore the best weights to the network if available, keeping its dropout,
+    /// zoneout and training-mode configuration
     pub fn restore_best_weights(&self, network: &mut LSTMNetwork) -> Result<(), String> {
-        if let Some(ref weights) = self.best_weights {
-            *network = weights.clone().into();
-            Ok(())
-        } else {
-            Err("No best weights available to restore".to_string())
+        let weights = self
+            .best_weights
+            .as_ref()
+            .ok_or_else(|| "No best weights available to restore".to_string())?;
+        let cells = network.get_cells_mut();
+        if cells.len() != weights.len() {
+            return Err(format!(
+                "Best weights have {} layers, the network has {}",
+                weights.len(),
+                cells.len()
+            ));
         }
+        for (i, (cell, saved)) in cells.iter().zip(weights).enumerate() {
+            let current = [&cell.w_ih, &cell.w_hh, &cell.b_ih, &cell.b_hh];
+            if current.iter().zip(saved).any(|(c, s)| c.dim() != s.dim()) {
+                return Err(format!(
+                    "Best weights of layer {i} do not match the network's shapes"
+                ));
+            }
+        }
+        for (cell, [w_ih, w_hh, b_ih, b_hh]) in cells.iter_mut().zip(weights) {
+            cell.w_ih.assign(w_ih);
+            cell.w_hh.assign(w_hh);
+            cell.b_ih.assign(b_ih);
+            cell.b_hh.assign(b_hh);
+        }
+        Ok(())
     }
 }
 

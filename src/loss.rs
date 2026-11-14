@@ -27,7 +27,8 @@ pub trait LossFunction {
     }
 
     /// Compute batch gradients for multiple predictions and targets
-    /// Default implementation computes gradients for each sample and concatenates
+    /// Default implementation is the gradient of the default `compute_batch_loss`:
+    /// per-sample gradients divided by the batch size
     fn compute_batch_gradient(
         &self,
         predictions: &Array2<f64>,
@@ -46,7 +47,7 @@ pub trait LossFunction {
             batch_gradients.column_mut(i).assign(&grad.column(0));
         }
 
-        batch_gradients
+        batch_gradients / batch_size as f64
     }
 }
 
@@ -131,16 +132,24 @@ pub struct CrossEntropyLoss;
 
 impl LossFunction for CrossEntropyLoss {
     fn compute_loss(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> f64 {
-        let softmax_preds = softmax(predictions);
-        let epsilon = 1e-15;
-        let log_preds = softmax_preds.map(|x| (x + epsilon).ln());
-        -(targets * log_preds).sum() / (predictions.shape()[1] as f64)
+        -(targets * log_softmax(predictions)).sum() / (predictions.shape()[1] as f64)
     }
 
     fn compute_gradient(&self, predictions: &Array2<f64>, targets: &Array2<f64>) -> Array2<f64> {
         let softmax_preds = softmax(predictions);
         (softmax_preds - targets) / (predictions.shape()[1] as f64)
     }
+}
+
+fn log_softmax(x: &Array2<f64>) -> Array2<f64> {
+    let mut result = x.clone();
+    for mut col in result.axis_iter_mut(ndarray::Axis(1)) {
+        let max_val = col.fold(f64::NEG_INFINITY, |m, &v| m.max(v));
+        col.mapv_inplace(|v| v - max_val);
+        let log_sum_exp = col.map(|v| v.exp()).sum().ln();
+        col.mapv_inplace(|v| v - log_sum_exp);
+    }
+    result
 }
 
 /// Numerically stable softmax function
@@ -189,6 +198,34 @@ mod tests {
 
         let gradient = loss_fn.compute_gradient(&predictions, &targets);
         assert_eq!(gradient.shape(), predictions.shape());
+    }
+
+    #[test]
+    fn cross_entropy_is_stable_for_extreme_logits() {
+        let logits = arr2(&[[1000.0], [-1000.0]]);
+        let target = arr2(&[[0.0], [1.0]]);
+        let loss = CrossEntropyLoss.compute_loss(&logits, &target);
+        assert!((loss - 2000.0).abs() < 1e-9, "loss {loss}");
+        let gradient = CrossEntropyLoss.compute_gradient(&logits, &target);
+        assert_eq!(gradient, arr2(&[[1.0], [-1.0]]));
+
+        let confident = CrossEntropyLoss.compute_loss(&logits, &arr2(&[[1.0], [0.0]]));
+        assert_eq!(confident, 0.0);
+
+        let tied = arr2(&[[1e16], [1e16]]);
+        let first = arr2(&[[1.0], [0.0]]);
+        let tied_loss = CrossEntropyLoss.compute_loss(&tied, &first);
+        assert!((tied_loss - 2f64.ln()).abs() < 1e-15, "loss {tied_loss}");
+        assert_eq!(
+            CrossEntropyLoss.compute_gradient(&tied, &first),
+            arr2(&[[-0.5], [0.5]])
+        );
+
+        let shifted = arr2(&[[1001.0, 3.0], [1000.0, 2.0], [998.0, 0.0]]);
+        let targets = arr2(&[[0.0, 0.0], [0.0, 0.0], [1.0, 1.0]]);
+        let per_column = CrossEntropyLoss.compute_loss(&shifted, &targets);
+        let expected = (1.0 + (-1.0f64).exp() + (-3.0f64).exp()).ln() + 3.0;
+        assert!((per_column - expected).abs() < 1e-12);
     }
 
     #[test]
