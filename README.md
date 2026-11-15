@@ -53,7 +53,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-lstm = "0.10"
+rust-lstm = "0.11"
 ndarray = "0.15"
 ```
 
@@ -428,6 +428,7 @@ cargo test
 
 ## Version History
 
+- **v0.11.0**: Saved models keep dropout, zoneout and training mode; stable cross-entropy; batch gradients averaged over the batch (behaviour change); MSRV 1.75
 - **v0.10.0**: Adam bias-correction fix, reproducible runs with `seed`, cell-update dropout (LSTM), candidate dropout and zoneout (GRU)
 - **v0.9.0**: Full BPTT, per-layer recurrent state, verified gradients (breaking API change, see CHANGELOG)
 - **v0.8.0**: Text generation utilities
